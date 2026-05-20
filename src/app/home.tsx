@@ -37,6 +37,7 @@ type Room = {
   distance_km?: number;
   latitude?: number;
   longitude?: number;
+  cover_image?: string | null;
 };
 
 type Profile = {
@@ -205,7 +206,6 @@ export default function Home() {
   const [roomMode, setRoomMode] = useState<RoomMode>("livestream");
   const [roomStatus, setRoomStatus] = useState<RoomStatusType>("live");
   const [venueName, setVenueName] = useState("");
-  const [distanceKm, setDistanceKm] = useState("1.2");
   const [selectedFilter, setSelectedFilter] = useState<(typeof FILTERS)[number]["label"]>("All");
   const [showCreateSheet, setShowCreateSheet] = useState(false);
 
@@ -250,20 +250,22 @@ export default function Home() {
   }
 
   async function fetchRooms() {
-    const { data, error } = await supabase
-      .from("event_rooms")
-      .select("*")
-      .order("created_at", { ascending: false });
+  const { data, error } = await supabase
+    .from("event_rooms")
+    .select("*")
+    .order("created_at", { ascending: false });
 
-    if (error) {
-      showAlert(error.message);
-      return;
-    }
-
-    setRooms(data || []);
+  if (error) {
+    showAlert(error.message);
+    return;
   }
 
+  setRooms(data || []);
+}
+
   async function createRoom() {
+     if (loading) return;
+
     if (!title.trim()) {
       showAlert("Enter a room name");
       return;
@@ -293,7 +295,6 @@ export default function Home() {
         mode: roomMode,
         status: roomStatus,
         venue_name: venueName.trim() || null,
-        distance_km: Number(distanceKm) || 0,
       })
       .select("id")
       .single();
@@ -336,15 +337,19 @@ export default function Home() {
       .eq("id", user.id)
       .maybeSingle();
 
-    const { error } = await supabase.from("event_attendees").insert({
-      event_room_id: room.id,
-      user_id: user.id,
-      username: profileData?.username || `Guest ${user.id.slice(0, 4)}`,
-      avatar_url: profileData?.avatar_url || "",
-      bio: profileData?.bio || "",
-      status: "requested",
-    });
-
+    const { error } = await supabase.from("event_attendees").upsert(
+  {
+    event_room_id: room.id,
+    user_id: user.id,
+    username: profileData?.username || `Guest ${user.id.slice(0, 4)}`,
+    avatar_url: profileData?.avatar_url || "",
+    bio: profileData?.bio || "",
+    status: "waiting",
+  },
+  {
+    onConflict: "event_room_id,user_id",
+  }
+);
     if (error) {
       showAlert(error.message);
       return;
@@ -360,46 +365,57 @@ export default function Home() {
     router.push(`/room/${room.id}`);
   }
 
+  async function confirmDeleteRoom(roomId: string) {
+  setRooms((currentRooms) =>
+    currentRooms.filter((room) => room.id !== roomId)
+  );
+
+  const { data, error } = await supabase
+    .from("event_rooms")
+    .delete()
+    .eq("id", roomId)
+    .select();
+
+  console.log("DELETE RESULT:", { data, error });
+
+  if (error) {
+    showAlert(error.message);
+    await fetchRooms();
+    return;
+  }
+
+  if (!data || data.length === 0) {
+    showAlert("Delete ran, but no room was deleted. Check RLS or host_id.");
+    await fetchRooms();
+    return;
+  }
+
+  setTimeout(() => {
+    fetchRooms();
+  }, 300);
+}
+
   async function deleteRoom(room: Room) {
-    Alert.alert(
-      "Delete room",
-      "Are you sure you want to delete this room?",
-      [
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            const { error } = await supabase
-              .from("event_rooms")
-              .delete()
-              .eq("id", room.id);
+  const confirmed = window.confirm("Delete this room?");
 
-            if (error) {
-              showAlert(error.message);
-              return;
-            }
+  if (!confirmed) return;
 
-            fetchRooms();
-          },
-        },
-      ]
-    );
+  await confirmDeleteRoom(room.id);
+}
+
+ async function quickJoin() {
+  const openRooms = rooms.filter((room) => room.current_users < room.max_users);
+
+  if (openRooms.length === 0) {
+    showAlert("No open rooms right now.");
+    return;
   }
 
-  async function quickJoin() {
-    const openRoom = rooms.find((room) => room.current_users < room.max_users);
+  const randomRoom =
+    openRooms[Math.floor(Math.random() * openRooms.length)];
 
-    if (!openRoom) {
-      showAlert("No open rooms right now.");
-      return;
-    }
-
-    await joinQueue(openRoom);
-  }
+  await joinQueue(randomRoom);
+}
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -407,114 +423,102 @@ export default function Home() {
   }
 
   function renderRoom({ item, index }: { item: Room; index: number }) {
-    const status = getRoomStatus(item);
     const vibes = getRoomVibes(item);
-    const isFull = status.tone === "full";
+    const isFull = item.current_users >= item.max_users;
+    const roomImage = item.cover_image ? { uri: item.cover_image } : getRoomBackdrop(item);
 
     return (
       <View style={styles.roomCard}>
-        <ImageBackground
-          source={getRoomBackdrop(item)}
-          resizeMode="cover"
-          imageStyle={styles.roomBackdropImage}
-          style={[
-            styles.roomBackdrop,
-            index % 3 === 1 && styles.roomBackdropAlt,
-            index % 3 === 2 && styles.roomBackdropWarm,
-          ]}
-        >
-          <View style={styles.roomOverlay} />
+        <View style={styles.roomCardInner}>
+          {/* Image Thumbnail */}
+          <ImageBackground
+            source={roomImage}
+            resizeMode="cover"
+            imageStyle={styles.roomThumbnailImage}
+            style={[
+              styles.roomThumbnail,
+              index % 3 === 1 && styles.roomThumbnailAlt,
+              index % 3 === 2 && styles.roomThumbnailWarm,
+            ]}
+          >
+            <View style={styles.roomThumbnailOverlay} />
+            {/* LIVE Badge */}
+            {item.status === "live" && (
+              <View style={styles.liveBadge}>
+                <Text style={styles.liveBadgeText}>LIVE</Text>
+              </View>
+            )}
+          </ImageBackground>
 
-          <View style={[styles.statusBadge, styles[`${status.tone}Badge`]]}>
-            <Icon
-              name={status.tone === "full" ? "lockFill" : status.tone === "trending" ? "flameFill" : "checkmark"}
-              size={13}
-              color={status.tone === "trending" ? "#120A02" : "#06120A"}
-            />
-            <Text style={[styles.statusText, status.tone === "full" && styles.fullStatusText]}>
-              {status.label}
-            </Text>
-          </View>
+          {/* Content Section */}
+          <View style={styles.roomContent}>
+            {/* Header: Title + Status Badge */}
+            <View style={styles.roomContentHeader}>
+              <View style={styles.roomTitleBlock}>
+                <Text style={styles.roomTitle} numberOfLines={1}>
+                  {item.title}
+                </Text>
+                <View style={styles.statusPill}>
+                  <View style={styles.statusDot} />
+                  <Text style={styles.statusPillText}>OPEN</Text>
+                </View>
+              </View>
+            </View>
 
-          <View style={styles.roomMain}>
-            <View style={styles.roomTextBlock}>
-              <Text style={styles.roomTitle} numberOfLines={1}>
-                {item.title}
-              </Text>
-
-              <View style={styles.eventMetaRow}>
+            {/* Type/Mode Badges */}
+            {(item.type || item.mode) && (
+              <View style={styles.badgesRow}>
                 {item.type && (
-                  <View style={styles.eventBadge}>
-                    <Text style={styles.eventBadgeText}>{item.type.replace("_", " ")}</Text>
+                  <View style={styles.smallBadge}>
+                    <Text style={styles.smallBadgeText}>{item.type.replace("_", " ")}</Text>
                   </View>
                 )}
                 {item.mode && (
-                  <View style={styles.eventBadgeAlt}>
-                    <Text style={styles.eventBadgeText}>{item.mode.toUpperCase()}</Text>
-                  </View>
-                )}
-                {item.status && (
-                  <View style={styles.eventBadgeSoft}>
-                    <Text style={styles.eventBadgeText}>{item.status}</Text>
+                  <View style={styles.smallBadge}>
+                    <Text style={styles.smallBadgeText}>{item.mode.toUpperCase()}</Text>
                   </View>
                 )}
               </View>
+            )}
 
-              <View style={styles.vibeRow}>
-                {vibes.map((vibe) => (
-                  <View key={vibe} style={styles.vibePill}>
-                    <Text style={styles.vibeText} numberOfLines={1}>
-                      {vibe}
-                    </Text>
-                  </View>
-                ))}
-              </View>
+            {/* Description */}
+            <Text style={styles.roomDescription} numberOfLines={1}>
+              {vibes.join(", ")}
+            </Text>
 
-              <View style={styles.avatarRow}>
-                {[0, 1, 2, 3, 4].map((avatarIndex) => (
-                  <View key={avatarIndex} style={[styles.miniAvatar, { marginLeft: avatarIndex ? -9 : 0 }]}>
-                    <Text style={styles.miniAvatarText}>
-                      {String.fromCharCode(65 + ((getRoomScore(item) + avatarIndex) % 26))}
-                    </Text>
-                  </View>
-                ))}
-
-                {item.queue_count > 0 && (
-                  <View style={styles.extraAvatar}>
-                    <Text style={styles.extraAvatarText}>+{item.queue_count}</Text>
-                  </View>
-                )}
-              </View>
-            </View>
-
-            <View style={styles.roomActionBlock}>
-              <View style={styles.capacityRow}>
-                <Icon name="person2Fill" size={18} color="#FFFFFF" />
-                <Text style={styles.capacityText}>
+            {/* Footer: Capacity + Distance */}
+            <View style={styles.roomFooter}>
+              <View style={styles.capacityRowCompact}>
+                <Icon name="person2Fill" size={14} color="#A7A1B4" />
+                <Text style={styles.capacityTextCompact}>
                   {item.current_users} / {item.max_users}
                 </Text>
               </View>
-
-              <View style={styles.cardActionsRow}>
-                <TouchableOpacity
-                  style={[styles.joinButton, isFull && styles.queueButton]}
-                  onPress={() => (isFull ? router.push(`/room/${item.id}`) : joinQueue(item))}
-                >
-                  <Text style={styles.joinButtonText}>
-                    {isFull ? "View Queue" : "Join Room"}
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.deleteButton}
-                  onPress={() => deleteRoom(item)}
-                >
-                  <Text style={styles.deleteButtonText}>Delete</Text>
-                </TouchableOpacity>
-              </View>
+              {item.distance_km && (
+                <Text style={styles.distanceText}>{item.distance_km.toFixed(1)} km away</Text>
+              )}
             </View>
           </View>
-        </ImageBackground>
+
+          {/* Actions */}
+          <View style={styles.roomActions}>
+            <TouchableOpacity
+              style={[styles.joinButtonCompact, isFull && styles.joinButtonCompactFull]}
+              onPress={() => (isFull ? router.push(`/room/${item.id}`) : joinQueue(item))}
+            >
+              <Text style={styles.joinButtonCompactText}>
+                {isFull ? "Queue" : "Join"}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.deleteButtonCompact}
+              onPress={() => deleteRoom(item)}
+            >
+              <Icon name="xmark" size={16} color="#F87171" />
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
     );
   }
@@ -659,12 +663,9 @@ export default function Home() {
           <Icon name="plus" size={34} color="#FFFFFF" />
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.navItem} onPress={fetchRooms}>
-          <View>
-            <Icon name="bolt" size={28} color="#A0A0AA" />
-            <View style={styles.activityDot} />
-          </View>
-          <Text style={styles.navText}>Activity</Text>
+        <TouchableOpacity style={styles.navItem} onPress={() => router.push("/friends")}>
+          <Icon name="person2" size={27} color="#A0A0AA" />
+          <Text style={styles.navText}>Friends</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.navItem} onPress={() => router.push("/profile")}>
@@ -705,15 +706,6 @@ export default function Home() {
               onChangeText={setVenueName}
               placeholder="Venue or location"
               placeholderTextColor="#7F778D"
-              style={styles.input}
-            />
-
-            <TextInput
-              value={distanceKm}
-              onChangeText={setDistanceKm}
-              placeholder="Distance (km)"
-              placeholderTextColor="#7F778D"
-              keyboardType="numeric"
               style={styles.input}
             />
 
@@ -792,7 +784,11 @@ export default function Home() {
               </View>
             </View>
 
-            <TouchableOpacity style={styles.createButton} onPress={createRoom}>
+            <TouchableOpacity
+              style={[styles.createButton, loading && { opacity: 0.55 }]}
+              onPress={createRoom}
+              disabled={loading}
+            >
               <Text style={styles.createButtonText}>{loading ? "Creating..." : "Open Room"}</Text>
             </TouchableOpacity>
 
@@ -900,59 +896,60 @@ const styles = StyleSheet.create({
   },
   greeting: {
     color: "#FFFFFF",
-    fontSize: 30,
+    fontSize: 32,
     fontWeight: "900",
-    letterSpacing: 0,
+    letterSpacing: -0.5,
   },
   subtitle: {
-    color: "#A7A1B4",
-    fontSize: 16,
-    lineHeight: 22,
-    marginTop: 7,
+    color: "#9CA3AF",
+    fontSize: 15,
+    lineHeight: 21,
+    marginTop: 8,
+    fontWeight: "500",
   },
   searchButton: {
     alignItems: "center",
-    backgroundColor: "#151521",
-    borderColor: "#29263A",
-    borderRadius: 36,
-    borderWidth: 1,
+    backgroundColor: "#8B5CF6",
+    borderRadius: 999,
     height: 72,
     justifyContent: "center",
     width: 72,
   },
   statsPanel: {
-    backgroundColor: "#11101B",
+    backgroundColor: "#0F0E19",
     borderColor: "#1F1D2D",
-    borderRadius: 21,
+    borderRadius: 18,
     borderWidth: 1,
     flexDirection: "row",
-    marginBottom: 28,
-    paddingVertical: 17,
+    marginBottom: 32,
+    paddingVertical: 20,
+    paddingHorizontal: 12,
   },
   statCell: {
     alignItems: "center",
     flex: 1,
     minWidth: 0,
     position: "relative",
+    gap: 6,
   },
   statValue: {
     color: "#FFFFFF",
-    fontSize: 21,
+    fontSize: 22,
     fontWeight: "900",
-    marginTop: 4,
+    letterSpacing: -0.5,
   },
   statLabel: {
-    color: "#B7B1C4",
-    fontSize: 11,
-    fontWeight: "700",
-    marginTop: 4,
+    color: "#9CA3AF",
+    fontSize: 12,
+    fontWeight: "600",
+    marginTop: 2,
   },
   statDivider: {
-    backgroundColor: "#363142",
-    height: 46,
+    backgroundColor: "#27252F",
+    height: 40,
     position: "absolute",
     right: 0,
-    top: 4,
+    top: 8,
     width: 1,
   },
   sectionHeader: {
@@ -988,254 +985,216 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   filterList: {
-    gap: 10,
-    paddingBottom: 18,
+    gap: 12,
+    paddingBottom: 20,
   },
   filterChip: {
     alignItems: "center",
-    backgroundColor: "#171722",
-    borderColor: "#343246",
+    backgroundColor: "#1F1D2D",
+    borderColor: "#2F2D3D",
     borderRadius: 999,
     borderWidth: 1,
     flexDirection: "row",
     gap: 8,
-    minHeight: 44,
-    paddingHorizontal: 17,
+    minHeight: 48,
+    paddingHorizontal: 18,
   },
   filterChipActive: {
-    backgroundColor: "#6D28D9",
+    backgroundColor: "#8B5CF6",
     borderColor: "#7C3AED",
   },
   filterChipText: {
-    color: "#F5F3FF",
-    fontSize: 14,
-    fontWeight: "800",
+    color: "#D1D5DB",
+    fontSize: 15,
+    fontWeight: "700",
   },
   filterChipTextActive: {
     color: "#FFFFFF",
   },
   roomList: {
-    gap: 14,
+    gap: 12,
   },
   roomCard: {
     backgroundColor: "#0C0B12",
-    borderColor: "#312747",
-    borderRadius: 22,
+    borderColor: "#1F1D2D",
+    borderRadius: 16,
     borderWidth: 1,
-    minHeight: 190,
+    minHeight: 140,
     overflow: "hidden",
   },
-  roomBackdrop: {
+  roomCardInner: {
     flex: 1,
-    justifyContent: "space-between",
-    minHeight: 190,
-    overflow: "hidden",
-    padding: 15,
+    flexDirection: "row",
+    alignItems: "stretch",
   },
-  roomBackdropAlt: {
+  roomThumbnail: {
+    width: 140,
+    minHeight: 140,
+    overflow: "hidden",
+    justifyContent: "flex-start",
+    alignItems: "flex-start",
+    padding: 10,
+  },
+  roomThumbnailAlt: {
     backgroundColor: "#160827",
   },
-  roomBackdropWarm: {
+  roomThumbnailWarm: {
     backgroundColor: "#211006",
   },
-  roomBackdropImage: {
-    opacity: 0.34,
-    transform: [{ scale: 1.22 }],
+  roomThumbnailImage: {
+    opacity: 0.4,
+    transform: [{ scale: 1.25 }],
   },
-  roomOverlay: {
-    backgroundColor: "rgba(0, 0, 0, 0.48)",
+  roomThumbnailOverlay: {
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
     bottom: 0,
     left: 0,
     position: "absolute",
     right: 0,
     top: 0,
   },
-  statusBadge: {
-    alignItems: "center",
-    alignSelf: "flex-start",
-    borderRadius: 999,
-    flexDirection: "row",
-    gap: 5,
-    paddingHorizontal: 11,
-    paddingVertical: 7,
+  liveBadge: {
+    backgroundColor: "#DC2626",
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    zIndex: 10,
   },
-  openBadge: {
-    backgroundColor: "#59E07C",
-  },
-  trendingBadge: {
-    backgroundColor: "#FDBA3B",
-  },
-  fullBadge: {
-    backgroundColor: "#F05252",
-  },
-  statusText: {
-    color: "#06120A",
-    fontSize: 12,
+  liveBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 10,
     fontWeight: "900",
+    letterSpacing: 0.5,
   },
-  fullStatusText: {
-    color: "#170303",
-  },
-  roomMain: {
-    alignItems: "flex-end",
-    flexDirection: "row",
-    gap: 14,
+  roomContent: {
+    flex: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     justifyContent: "space-between",
-    marginTop: 22,
   },
-  roomTextBlock: {
+  roomContentHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
+  roomTitleBlock: {
     flex: 1,
     minWidth: 0,
   },
   roomTitle: {
     color: "#FFFFFF",
-    fontSize: 27,
+    fontSize: 16,
     fontWeight: "900",
+    marginBottom: 6,
     letterSpacing: 0,
   },
-  vibeRow: {
+  statusPill: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 12,
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "rgba(34, 197, 94, 0.12)",
+    borderColor: "rgba(34, 197, 94, 0.25)",
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    alignSelf: "flex-start",
   },
-  eventMetaRow: {
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#22C55E",
+  },
+  statusPillText: {
+    color: "#86EFAC",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  badgesRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
+    gap: 6,
+    marginBottom: 6,
+  },
+  smallBadge: {
+    backgroundColor: "rgba(124, 58, 237, 0.15)",
+    borderColor: "rgba(124, 58, 237, 0.25)",
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  smallBadgeText: {
+    color: "#E9D5FF",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  roomDescription: {
+    color: "#A7A1B4",
+    fontSize: 12,
+    lineHeight: 16,
+    marginBottom: 6,
+  },
+  roomFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     gap: 8,
-    marginTop: 10,
   },
-  eventBadge: {
-    backgroundColor: "rgba(124,58,237,0.18)",
-    borderColor: "rgba(124,58,237,0.35)",
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+  capacityRowCompact: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
   },
-  eventBadgeAlt: {
-    backgroundColor: "rgba(92,33,182,0.18)",
-    borderColor: "rgba(92,33,182,0.30)",
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  eventBadgeText: {
-    color: "#F8F0FF",
+  capacityTextCompact: {
+    color: "#D1D5DB",
     fontSize: 12,
     fontWeight: "700",
   },
-  eventBadgeSoft: {
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderColor: "rgba(255,255,255,0.12)",
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  vibePill: {
-    backgroundColor: "rgba(35, 24, 55, 0.82)",
-    borderColor: "rgba(132, 78, 192, 0.35)",
-    borderRadius: 9,
-    borderWidth: 1,
-    maxWidth: 118,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  vibeText: {
-    color: "#D8B4FE",
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  avatarRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    marginTop: 13,
-  },
-  miniAvatar: {
-    alignItems: "center",
-    backgroundColor: "#28233A",
-    borderColor: "#0B0B11",
-    borderRadius: 16,
-    borderWidth: 2,
-    height: 32,
-    justifyContent: "center",
-    width: 32,
-  },
-  miniAvatarText: {
-    color: "#FFFFFF",
+  distanceText: {
+    color: "#9CA3AF",
     fontSize: 11,
-    fontWeight: "900",
   },
-  extraAvatar: {
+  roomActions: {
+    paddingHorizontal: 10,
+    paddingVertical: 12,
+    justifyContent: "space-between",
     alignItems: "center",
-    backgroundColor: "rgba(27, 27, 38, 0.9)",
-    borderRadius: 17,
-    height: 34,
-    justifyContent: "center",
-    marginLeft: -6,
-    width: 42,
-  },
-  extraAvatarText: {
-    color: "#FFFFFF",
-    fontSize: 12,
-    fontWeight: "900",
-  },
-  roomActionBlock: {
-    alignItems: "flex-end",
-    gap: 16,
-  },
-  cardActionsRow: {
-    flexDirection: "row",
-    gap: 10,
-    alignItems: "center",
-  },
-  deleteButton: {
-    flex: 1,
-    backgroundColor: "#EF4444",
-    minHeight: 52,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 20,
-  },
-  deleteButtonText: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "900",
-  },
-  capacityRow: {
-    alignItems: "center",
-    flexDirection: "row",
+    borderLeftColor: "#1F1D2D",
+    borderLeftWidth: 1,
     gap: 8,
   },
-  capacityText: {
-    color: "#FFFFFF",
-    fontSize: 20,
-    fontWeight: "900",
-  },
-  joinButton: {
+  joinButtonCompact: {
+    backgroundColor: "#7C3AED",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minWidth: 50,
     alignItems: "center",
-    backgroundColor: "#6D28D9",
-    borderRadius: 14,
     justifyContent: "center",
-    minHeight: 52,
-    minWidth: 142,
-    paddingHorizontal: 20,
   },
-  queueButton: {
-    backgroundColor: "#232634",
+  joinButtonCompactFull: {
+    backgroundColor: "#5B4680",
   },
-  joinButtonText: {
+  joinButtonCompactText: {
     color: "#FFFFFF",
-    fontSize: 16,
+    fontSize: 12,
     fontWeight: "900",
+  },
+  deleteButtonCompact: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: "rgba(239, 68, 68, 0.1)",
+    alignItems: "center",
+    justifyContent: "center",
   },
   emptyState: {
     alignItems: "center",
-    backgroundColor: "#11101B",
-    borderColor: "#2A2440",
-    borderRadius: 22,
+    backgroundColor: "#0F0E19",
+    borderColor: "#1F1D2D",
+    borderRadius: 18,
     borderWidth: 1,
-    padding: 24,
+    padding: 28,
   },
   emptyTitle: {
     color: "#FFFFFF",
@@ -1243,28 +1202,29 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   emptyCopy: {
-    color: "#A7A1B4",
-    marginTop: 6,
+    color: "#9CA3AF",
+    marginTop: 8,
     textAlign: "center",
+    fontSize: 15,
   },
   quickJoinCard: {
     alignItems: "center",
-    backgroundColor: "#1A0B39",
-    borderColor: "#4C1D95",
-    borderRadius: 22,
+    backgroundColor: "#1a0d3d",
+    borderColor: "#3d1f6d",
+    borderRadius: 18,
     borderWidth: 1,
     flexDirection: "row",
-    gap: 13,
-    marginTop: 14,
-    padding: 13,
+    gap: 14,
+    marginTop: 16,
+    padding: 14,
   },
   quickIcon: {
     alignItems: "center",
-    backgroundColor: "#382071",
-    borderRadius: 14,
-    height: 48,
+    backgroundColor: "#2d1050",
+    borderRadius: 12,
+    height: 50,
     justifyContent: "center",
-    width: 48,
+    width: 50,
   },
   quickTextBlock: {
     flex: 1,
@@ -1272,64 +1232,64 @@ const styles = StyleSheet.create({
   },
   quickTitle: {
     color: "#FFFFFF",
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: "900",
   },
   quickSubtitle: {
-    color: "#C4B5FD",
+    color: "#9CA3AF",
     fontSize: 13,
-    marginTop: 4,
+    marginTop: 3,
   },
   surpriseButton: {
     alignItems: "center",
-    backgroundColor: "#5B21B6",
-    borderColor: "#7C3AED",
+    backgroundColor: "#7C3AED",
+    borderColor: "#8B5CF6",
     borderRadius: 999,
     borderWidth: 1,
     flexDirection: "row",
-    gap: 8,
-    minHeight: 47,
+    gap: 6,
+    minHeight: 44,
     paddingHorizontal: 16,
   },
   surpriseText: {
     color: "#FFFFFF",
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "900",
   },
   bottomNav: {
     alignItems: "center",
-    backgroundColor: "#080A12",
-    borderColor: "#111626",
+    backgroundColor: "#0A0812",
+    borderColor: "#1F1D2D",
     borderTopWidth: 1,
     bottom: 0,
     flexDirection: "row",
     justifyContent: "space-around",
     left: 0,
-    paddingTop: 12,
+    paddingTop: 10,
     position: "absolute",
     right: 0,
   },
   navItem: {
     alignItems: "center",
     flex: 1,
-    gap: 5,
-    minHeight: 58,
+    gap: 4,
+    minHeight: 60,
   },
   navText: {
-    color: "#9A97A5",
-    fontSize: 12,
+    color: "#6B7280",
+    fontSize: 11,
     fontWeight: "700",
   },
   navTextActive: {
-    color: "#8B3DFF",
+    color: "#8B5CF6",
   },
   createFab: {
     alignItems: "center",
-    backgroundColor: "#6D28D9",
+    backgroundColor: "#8B5CF6",
     borderRadius: 34,
     height: 68,
     justifyContent: "center",
-    marginTop: -36,
+    marginTop: -34,
     width: 68,
   },
   activityDot: {
