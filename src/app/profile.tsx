@@ -74,45 +74,62 @@ export default function Profile() {
   }
 
   async function uploadImage(uri: string) {
-    const { data: userData } = await supabase.auth.getUser();
-    const user = userData.user;
+  const { data: userData } = await supabase.auth.getUser();
+  const user = userData.user;
 
-    if (!user) {
-      Alert.alert("Sign in required", "You must be signed in to upload an avatar.");
-      return;
-    }
-
-    try {
-      setUploading(true);
-      const response = await fetch(uri);
-      const blob = await response.blob();
-      const fileExt = uri.split(".").pop() || "jpg";
-      const filePath = `${user.id}/avatar.${fileExt}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from("profile-images")
-        .upload(filePath, blob, { upsert: true });
-
-      if (uploadError) {
-        throw uploadError;
-      }
-
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from("profile-images").getPublicUrl(filePath);
-
-      if (!publicUrl) {
-        throw new Error("Failed to get public avatar URL.");
-      }
-
-      setAvatarUrl(publicUrl);
-    } catch (error: any) {
-      console.log("UPLOAD AVATAR ERROR:", error);
-      Alert.alert("Upload failed", error?.message || "Could not upload avatar.");
-    } finally {
-      setUploading(false);
-    }
+  if (!user) {
+    Alert.alert(
+      "Sign in required",
+      "You must be signed in to upload an avatar."
+    );
+    return;
   }
+
+  try {
+    setUploading(true);
+
+    const fileExt =
+      uri.split(".").pop()?.split("?")[0] || "jpg";
+
+    const filePath =
+      `${user.id}/avatar_${Date.now()}.${fileExt}`;
+
+    const response = await fetch(uri);
+    const arrayBuffer = await response.arrayBuffer();
+
+    const { error: uploadError } = await supabase.storage
+      .from("profile-images")
+      .upload(filePath, arrayBuffer, {
+        contentType: `image/${fileExt === "png" ? "png" : "jpeg"}`,
+        upsert: true,
+      });
+
+    if (uploadError) {
+      throw uploadError;
+    }
+
+    const {
+      data: { publicUrl },
+    } = supabase.storage
+      .from("profile-images")
+      .getPublicUrl(filePath);
+
+    if (!publicUrl) {
+      throw new Error("Failed to get public avatar URL.");
+    }
+
+    setAvatarUrl(publicUrl);
+  } catch (error: any) {
+    console.log("UPLOAD AVATAR ERROR:", error);
+
+    Alert.alert(
+      "Upload failed",
+      error?.message || "Could not upload avatar."
+    );
+  } finally {
+    setUploading(false);
+  }
+}
 
   async function saveProfile() {
     if (!username.trim()) {

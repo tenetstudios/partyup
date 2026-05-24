@@ -117,6 +117,14 @@ const ROOM_STATUSES: { value: RoomStatusType; label: string }[] = [
   { value: "ended", label: "Ended" },
 ];
 
+const TRENDING_SEARCHES = [
+  "Afrobeats",
+  "Debate",
+  "Late Night",
+  "VIP",
+  "Toronto",
+];
+
 const VIBE_TAGS = [
   "Chill",
   "Deep Talk",
@@ -208,31 +216,99 @@ export default function Home() {
   const [venueName, setVenueName] = useState("");
   const [selectedFilter, setSelectedFilter] = useState<(typeof FILTERS)[number]["label"]>("All");
   const [showCreateSheet, setShowCreateSheet] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchText, setSearchText] = useState("");
+  const [isPrivateRoom, setIsPrivateRoom] = useState(false);
 
   useEffect(() => {
-    fetchRooms();
-    fetchProfile();
-  }, []);
+  let mounted = true;
+
+  async function bootHome() {
+    await supabase.auth.getSession();
+
+    if (!mounted) return;
+
+    await fetchProfile();
+    await fetchRooms();
+  }
+
+  bootHome();
+
+  return () => {
+    mounted = false;
+  };
+}, []);
 
   const filteredRooms = useMemo(() => {
-    if (selectedFilter === "All") return rooms;
+  let result = rooms;
 
-    return rooms.filter((room) => getRoomVibes(room).includes(selectedFilter));
-  }, [rooms, selectedFilter]);
+  if (selectedFilter !== "All") {
+    result = result.filter((room) =>
+      getRoomVibes(room).includes(selectedFilter)
+    );
+  }
 
-  const stats = useMemo(() => {
-    const liveRooms = rooms.length;
-    const peopleOnline = rooms.reduce((total, room) => total + room.current_users, 0);
-    const trending = rooms.filter((room) => getRoomStatus(room).tone === "trending").length;
-    const queue = rooms.reduce((total, room) => total + room.queue_count, 0);
+  if (searchText.trim()) {
+    const q = searchText.trim().toLowerCase();
 
-    return [
-      { label: "Live Rooms", value: liveRooms, icon: "person2" as IconName },
-      { label: "People Online", value: peopleOnline, icon: "flame" as IconName },
-      { label: "Trending", value: trending, icon: "bolt" as IconName },
-      { label: "Your Queue", value: queue, icon: "personQueue" as IconName },
-    ];
-  }, [rooms]);
+    result = result.filter((room) =>
+      [
+        room.title,
+        room.type,
+        room.mode,
+        room.status,
+        room.venue_name,
+        ...getRoomVibes(room),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(q)
+    );
+  }
+
+  return result;
+}, [rooms, selectedFilter, searchText]);
+
+const stats = useMemo(() => {
+  const liveRooms = rooms.length;
+  const peopleOnline = rooms.reduce(
+    (total, room) => total + room.current_users,
+    0
+  );
+
+  const trending = rooms.filter(
+    (room) => getRoomStatus(room).tone === "trending"
+  ).length;
+
+  const queue = rooms.reduce(
+    (total, room) => total + room.queue_count,
+    0
+  );
+
+  return [
+    {
+      label: "Live Rooms",
+      value: liveRooms,
+      icon: "person2" as IconName,
+    },
+    {
+      label: "People Online",
+      value: peopleOnline,
+      icon: "flame" as IconName,
+    },
+    {
+      label: "Trending",
+      value: trending,
+      icon: "bolt" as IconName,
+    },
+    {
+      label: "Your Queue",
+      value: queue,
+      icon: "personQueue" as IconName,
+    },
+  ];
+}, [rooms]);
 
   async function fetchProfile() {
     const { data: userData } = await supabase.auth.getUser();
@@ -249,7 +325,7 @@ export default function Home() {
     setProfile(data || null);
   }
 
-  async function fetchRooms() {
+ async function fetchRooms() {
   const { data, error } = await supabase
     .from("event_rooms")
     .select("*")
@@ -263,59 +339,115 @@ export default function Home() {
   setRooms(data || []);
 }
 
+async function syncRoomCounts(roomId: string) {
+  const { count: acceptedCount } = await supabase
+    .from("event_attendees")
+    .select("*", {
+      count: "exact",
+      head: true,
+    })
+    .eq("event_room_id", roomId)
+    .eq("status", "accepted");
+
+  const { count: waitingCount } = await supabase
+    .from("event_attendees")
+    .select("*", {
+      count: "exact",
+      head: true,
+    })
+    .eq("event_room_id", roomId)
+    .eq("status", "waiting");
+
+  await supabase
+    .from("event_rooms")
+    .update({
+      current_users:
+        acceptedCount || 0,
+
+      queue_count:
+        waitingCount || 0,
+
+      last_active_at:
+        new Date().toISOString(),
+    })
+    .eq("id", roomId);
+}
+
   async function createRoom() {
-     if (loading) return;
+  if (loading) return;
 
-    if (!title.trim()) {
-      showAlert("Enter a room name");
-      return;
-    }
+  if (!title.trim()) {
+    showAlert("Enter a room name");
+    return;
+  }
 
-    setLoading(true);
+  setLoading(true);
 
-    const { data: userData } = await supabase.auth.getUser();
-    const user = userData.user;
+  const { data: userData } = await supabase.auth.getUser();
+  const user = userData.user;
 
-    if (!user) {
-      setLoading(false);
-      showAlert("You need to sign in first.");
-      return;
-    }
-
-    const { data: insertedRoom, error } = await supabase
-      .from("event_rooms")
-      .insert({
-        title: title.trim(),
-        host_id: user.id,
-        current_users: 1,
-        queue_count: 0,
-        max_users: Number(maxUsers) || 12,
-        is_private: false,
-        type: roomType,
-        mode: roomMode,
-        status: roomStatus,
-        venue_name: venueName.trim() || null,
-      })
-      .select("id")
-      .single();
-
+  if (!user) {
     setLoading(false);
+    showAlert("You need to sign in first.");
+    return;
+  }
 
-    if (error) {
-      showAlert(error.message);
-      return;
-    }
+  const { data: insertedRoom, error } = await supabase
+    .from("event_rooms")
+    .insert({
+      title: title.trim(),
+      host_id: user.id,
+      current_users: 0,
+      queue_count: 0,
+      max_users: Number(maxUsers) || 12,
+      is_private: isPrivateRoom,
+      type: roomType,
+      mode: roomMode,
+      status: roomStatus,
+      venue_name: venueName.trim() || null,
+      last_active_at: new Date().toISOString(),
+    })
+    .select("id")
+    .single();
+
+  if (error) {
+    setLoading(false);
+    showAlert(error.message);
+    return;
+  }
+
+  if (insertedRoom?.id) {
+    await supabase
+      .from("event_attendees")
+      .upsert(
+        {
+          event_room_id: insertedRoom.id,
+          user_id: user.id,
+          username: profile?.username || "Host",
+          avatar_url: profile?.avatar_url || "",
+          status: "accepted",
+          room_role: "host",
+          can_stream: false,
+          stream_status: "off",
+        },
+        {
+          onConflict: "event_room_id,user_id",
+        }
+      );
+
+    await syncRoomCounts(insertedRoom.id);
 
     setTitle("");
     setShowCreateSheet(false);
+    setLoading(false);
 
-    if (insertedRoom?.id) {
-      router.push(`/room/${insertedRoom.id}`);
-      return;
-    }
-
-    fetchRooms();
+    router.push(`/room/${insertedRoom.id}`);
+    return;
   }
+
+  setLoading(false);
+  fetchRooms();
+}
 
   async function joinQueue(room: Room) {
     const { data: userData } = await supabase.auth.getUser();
@@ -325,6 +457,10 @@ export default function Home() {
       showAlert("You need to sign in first.");
       return;
     }
+    if (room.host_id === user.id) {
+  router.push(`/room/${room.id}`);
+  return;
+}
 
     if (room.current_users >= room.max_users) {
       router.push(`/room/${room.id}`);
@@ -510,13 +646,6 @@ export default function Home() {
                 {isFull ? "Queue" : "Join"}
               </Text>
             </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.deleteButtonCompact}
-              onPress={() => deleteRoom(item)}
-            >
-              <Icon name="xmark" size={16} color="#F87171" />
-            </TouchableOpacity>
           </View>
         </View>
       </View>
@@ -543,6 +672,14 @@ export default function Home() {
               <Icon name="bell" size={23} color="#FFFFFF" />
               <View style={styles.notificationDot} />
             </TouchableOpacity>
+            <TouchableOpacity
+  style={styles.iconButton}
+  onPress={() => setSearchOpen((current) => !current)}
+><Icon
+    name="magnifyingglass"
+    size={22}
+    color="#FFFFFF"/>
+</TouchableOpacity>
 
             <TouchableOpacity style={styles.profileAvatar} onPress={() => router.push("/profile")}>
               {profile?.avatar_url ? (
@@ -557,16 +694,42 @@ export default function Home() {
           </View>
         </View>
 
-        <View style={styles.greetingRow}>
-          <View style={styles.greetingText}>
-            <Text style={styles.greeting}>Good evening, {getGreetingName(profile)}</Text>
-            <Text style={styles.subtitle}>Find a vibe. Join the conversation. Meet someone new.</Text>
-          </View>
+       <View style={styles.greetingRow}>
+  <View style={styles.greetingText}>
+    <Text style={styles.greeting}>
+      Good evening, {getGreetingName(profile)}
+    </Text>
 
-          <TouchableOpacity style={styles.searchButton}>
-            <Icon name="magnifyingglass" size={31} color="#FFFFFF" />
-          </TouchableOpacity>
-        </View>
+    <Text style={styles.subtitle}>
+      Find a vibe. Join the conversation. Meet someone new.
+    </Text>
+  </View>
+
+</View>
+
+{searchOpen && (
+  <View style={styles.searchContainer}>
+    <TextInput
+      autoFocus
+      value={searchText}
+      onChangeText={setSearchText}
+      placeholder="Search rooms, music, pop-ups..."
+      placeholderTextColor="#7F778D"
+      style={styles.searchInput}
+    />
+    <View style={styles.trendingSearchesRow}>
+      {TRENDING_SEARCHES.map((term) => (
+        <TouchableOpacity
+          key={term}
+          style={styles.trendingSearchChip}
+          onPress={() => setSearchText(term)}
+        >
+          <Text style={styles.trendingSearchText}>{term}</Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  </View>
+)}
 
         <View style={styles.statsPanel}>
           {stats.map((stat, index) => (
@@ -624,8 +787,16 @@ export default function Home() {
           contentContainerStyle={styles.roomList}
           ListEmptyComponent={
             <View style={styles.emptyState}>
-              <Text style={styles.emptyTitle}>No rooms are open yet.</Text>
-              <Text style={styles.emptyCopy}>Start one and set the tone for tonight.</Text>
+              <Text style={styles.emptyTitle}>
+                {searchText.trim()
+                  ? `No rooms matched '${searchText.trim()}'`
+                  : "No rooms are open yet."}
+              </Text>
+              <Text style={styles.emptyCopy}>
+                {searchText.trim()
+                  ? "Try a different vibe or clear the search."
+                  : "Start one and set the tone for tonight."}
+              </Text>
             </View>
           }
         />
@@ -676,7 +847,14 @@ export default function Home() {
 
       <Modal transparent visible={showCreateSheet} animationType="fade">
         <View style={styles.modalBackdrop}>
-          <View style={styles.createSheet}>
+          <ScrollView
+  style={styles.createSheet}
+  contentContainerStyle={{
+    paddingBottom: 140,
+  }}
+  showsVerticalScrollIndicator={true}
+  keyboardShouldPersistTaps="handled"
+>
             <View style={styles.sheetHeader}>
               <Text style={styles.sheetTitle}>Create Room</Text>
               <TouchableOpacity style={styles.closeButton} onPress={() => setShowCreateSheet(false)}>
@@ -734,68 +912,126 @@ export default function Home() {
               </View>
             </View>
 
-            <View style={styles.controlGroup}>
-              <Text style={styles.controlLabel}>Mode</Text>
-              <View style={styles.choiceRow}>
-                {ROOM_MODES.map((option) => (
-                  <TouchableOpacity
-                    key={option.value}
-                    style={[
-                      styles.choicePill,
-                      roomMode === option.value && styles.choicePillActive,
-                    ]}
-                    onPress={() => setRoomMode(option.value)}
-                  >
-                    <Text
-                      style={[
-                        styles.choicePillText,
-                        roomMode === option.value && styles.choicePillTextActive,
-                      ]}
-                    >
-                      {option.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
+          <View style={styles.controlGroup}>
+  <Text style={styles.controlLabel}>
+    Mode
+  </Text>
 
-            <View style={styles.controlGroup}>
-              <Text style={styles.controlLabel}>Status</Text>
-              <View style={styles.choiceRow}>
-                {ROOM_STATUSES.map((option) => (
-                  <TouchableOpacity
-                    key={option.value}
-                    style={[
-                      styles.choicePill,
-                      roomStatus === option.value && styles.choicePillActive,
-                    ]}
-                    onPress={() => setRoomStatus(option.value)}
-                  >
-                    <Text
-                      style={[
-                        styles.choicePillText,
-                        roomStatus === option.value && styles.choicePillTextActive,
-                      ]}
-                    >
-                      {option.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
+  <View style={styles.choiceRow}>
+    {ROOM_MODES.map((option) => (
+      <TouchableOpacity
+        key={option.value}
+        style={[
+          styles.choicePill,
+          roomMode === option.value &&
+            styles.choicePillActive,
+        ]}
+        onPress={() =>
+          setRoomMode(option.value)
+        }
+      >
+        <Text
+          style={[
+            styles.choicePillText,
+            roomMode === option.value &&
+              styles.choicePillTextActive,
+          ]}
+        >
+          {option.label}
+        </Text>
+      </TouchableOpacity>
+    ))}
+  </View>
+</View>
 
-            <TouchableOpacity
-              style={[styles.createButton, loading && { opacity: 0.55 }]}
-              onPress={createRoom}
-              disabled={loading}
-            >
-              <Text style={styles.createButtonText}>{loading ? "Creating..." : "Open Room"}</Text>
-            </TouchableOpacity>
+<View style={styles.controlGroup}>
+  <Text style={styles.controlLabel}>
+    Status
+  </Text>
 
-            <TouchableOpacity style={styles.signOutButton} onPress={signOut}>
-              <Text style={styles.signOutText}>Sign Out</Text>
-            </TouchableOpacity>
-          </View>
+  <View style={styles.choiceRow}>
+    {ROOM_STATUSES.map((option) => (
+      <TouchableOpacity
+        key={option.value}
+        style={[
+          styles.choicePill,
+          roomStatus === option.value &&
+            styles.choicePillActive,
+        ]}
+        onPress={() =>
+          setRoomStatus(option.value)
+        }
+      >
+        <Text
+          style={[
+            styles.choicePillText,
+            roomStatus === option.value &&
+              styles.choicePillTextActive,
+          ]}
+        >
+          {option.label}
+        </Text>
+      </TouchableOpacity>
+    ))}
+  </View>
+</View>
+
+<View style={styles.controlGroup}>
+  <Text style={styles.controlLabel}>
+    Privacy
+  </Text>
+
+  <TouchableOpacity
+    style={[
+      styles.choicePill,
+      isPrivateRoom &&
+        styles.choicePillActive,
+    ]}
+    onPress={() =>
+      setIsPrivateRoom(
+        (current) => !current
+      )
+    }
+  >
+    <Text
+      style={[
+        styles.choicePillText,
+        isPrivateRoom &&
+          styles.choicePillTextActive,
+      ]}
+    >
+      {isPrivateRoom
+        ? "Private Room On"
+        : "Private Room Off"}
+    </Text>
+  </TouchableOpacity>
+</View>
+
+<TouchableOpacity
+  style={[
+    styles.createButton,
+    loading && { opacity: 0.55 },
+  ]}
+  onPress={createRoom}
+  disabled={loading}
+>
+  <Text style={styles.createButtonText}>
+    {loading
+      ? "Creating..."
+      : "Open Room"}
+  </Text>
+</TouchableOpacity>
+
+<TouchableOpacity
+  style={styles.signOutButton}
+  onPress={signOut}
+>
+  <Text style={styles.signOutText}>
+    Sign Out
+  </Text>
+</TouchableOpacity>
+
+  </ScrollView>
         </View>
       </Modal>
     </View>
@@ -906,14 +1142,6 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     marginTop: 8,
     fontWeight: "500",
-  },
-  searchButton: {
-    alignItems: "center",
-    backgroundColor: "#8B5CF6",
-    borderRadius: 999,
-    height: 72,
-    justifyContent: "center",
-    width: 72,
   },
   statsPanel: {
     backgroundColor: "#0F0E19",
@@ -1309,13 +1537,14 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   createSheet: {
-    backgroundColor: "#11101B",
-    borderColor: "#332855",
-    borderRadius: 24,
-    borderWidth: 1,
-    padding: 18,
-    width: "100%",
-  },
+  backgroundColor: "#11101B",
+  borderColor: "#332855",
+  borderRadius: 24,
+  borderWidth: 1,
+  padding: 18,
+  width: "100%",
+  maxHeight: "88%",
+},
   sheetHeader: {
     alignItems: "center",
     flexDirection: "row",
@@ -1398,5 +1627,36 @@ const styles = StyleSheet.create({
   signOutText: {
     color: "#9A97A5",
     fontWeight: "800",
+  },
+  searchContainer: {
+    marginBottom: 20,
+  },
+  searchInput: {
+    backgroundColor: "#11101B",
+    borderColor: "#2A2440",
+    borderWidth: 1,
+    borderRadius: 16,
+    color: "#FFFFFF",
+    padding: 14,
+    marginBottom: 16,
+    fontSize: 15,
+  },
+  trendingSearchesRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  trendingSearchChip: {
+    backgroundColor: "#1F1D2D",
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#2E2A42",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  trendingSearchText: {
+    color: "#EDE9FE",
+    fontSize: 13,
+    fontWeight: "700",
   },
 });
