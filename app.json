@@ -8,7 +8,7 @@
     "scheme": "partyup",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/images/icon.png"
     },
     "android": {
       "permissions": [
@@ -16,11 +16,14 @@
         "RECORD_AUDIO",
         "MODIFY_AUDIO_SETTINGS"
       ],
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyD74xkP7GBVQtkal7hg8oR8_GtCyGncP20"
+        }
+      },
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "foregroundImage": "./assets/images/icon.png",
+        "backgroundColor": "#050509"
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.partyup2525.PartyUp"
@@ -34,11 +37,9 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
-          "android": {
-            "image": "./assets/images/splash-icon.png",
-            "imageWidth": 76
-          }
+          "backgroundColor": "#050509",
+          "image": "./assets/images/icon.png",
+          "imageWidth": 120
         }
       ],
       "expo-web-browser"

@@ -1400,29 +1400,6 @@ const requestedStreamers = [
     showsHorizontalScrollIndicator={false}
     contentContainerStyle={styles.streamGridRow}
   >
-    {hostIsLive && (
-  <View style={styles.streamTile}>
-    <ImageBackground
-      source={
-        room.cover_image
-          ? { uri: room.cover_image }
-          : require("../../../../assets/images/rooftop-dj-set.png")
-      }
-      style={styles.streamTileImage}
-      imageStyle={styles.streamTileImageStyle}
-    >
-      <View style={styles.streamTileOverlay} />
-
-      <View style={styles.liveBadgeMobile}>
-        <Text style={styles.liveBadgeText}>HOST</Text>
-      </View>
-
-      <TouchableOpacity onPress={() => navigateToUser(room.host_id)}>
-        <Text style={styles.streamTileName}>{hostName}</Text>
-      </TouchableOpacity>
-    </ImageBackground>
-  </View>
-)}
 
 {activeStreamers
   .filter((person: any) => person.user_id !== room.host_id)
@@ -1502,29 +1479,6 @@ const requestedStreamers = [
 </View>
 
   </ScrollView>
-  {isHost && (
-  <TouchableOpacity
-    style={styles.requestStreamTile}
-    onPress={() => {
-  if (!hostParticipant) {
-    window.alert("Host is not inside the room yet.");
-    return;
-  }
-
-  hostIsLive
-    ? stopStreamer(hostParticipant)
-    : approveStreamer(hostParticipant);
-}}
-  >
-    <Text style={styles.requestStreamPlus}>
-      {hostIsLive ? "×" : "+"}
-    </Text>
-    <Text style={styles.requestStreamText}>
-      {hostIsLive ? "Stop going live" : "Go live"}
-    </Text>
-  </TouchableOpacity>
-)}
-
 
   {!isDesktop && (
               <View style={styles.roomMetaMobile}>

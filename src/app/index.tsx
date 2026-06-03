@@ -15,61 +15,61 @@ import * as WebBrowser from "expo-web-browser";
 
 WebBrowser.maybeCompleteAuthSession();
 
+
 export default function Index() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    let mounted = true;
+  let mounted = true;
+  let routed = false;
 
-    async function loadSavedSession() {
-      const { data } = await supabase.auth.getSession();
-      const user = data.session?.user;
+  async function routeUser(userId: string) {
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
-      if (!mounted || !user) return;
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("username")
+      .eq("id", userId)
+      .maybeSingle();
 
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("username")
-        .eq("id", user.id)
-        .maybeSingle();
+    if (!mounted || routed) return;
 
-      router.replace(profile?.username ? "/home" : "/profile");
-    }
+    routed = true;
+    router.replace(profile?.username ? "/home" : "/profile");
+  }
 
-    loadSavedSession();
+  async function loadSavedSession() {
+  const { data } = await supabase.auth.getSession();
+  const user = data.session?.user;
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      const user = session?.user;
-      if (!user) return;
+  if (!mounted || !user) return;
 
-      await supabase.from("profiles").upsert(
-        {
-          id: user.id,
-          username:
-            user.user_metadata?.full_name ||
-            user.user_metadata?.name ||
-            user.email?.split("@")[0] ||
-            "Guest",
-          avatar_url:
-            user.user_metadata?.avatar_url ||
-            user.user_metadata?.picture ||
-            "",
-          bio: "",
-          is_google_verified: !!user.email,
-        },
-        { onConflict: "id" }
-      );
+  await ensureProfile(user);
+await routeUser(user.id);
+}
 
-      router.replace("/home");
-    });
+loadSavedSession();
 
-    return () => {
-      mounted = false;
-      subscription.unsubscribe();
-    };
-  }, []);
+const {
+  data: { subscription },
+} = supabase.auth.onAuthStateChange(async (_event, session) => {
+  const user = session?.user;
+  if (!user || routed) return;
+
+  const { data: existingProfile } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  await routeUser(user.id);
+});
+
+return () => {
+  mounted = false;
+  subscription.unsubscribe();
+};
+}, []);
 
   const { width } = useWindowDimensions();
   const isDesktop = width > 900;
@@ -78,26 +78,85 @@ export default function Index() {
     ? require("../../assets/images/desktop-hero.png")
     : require("../../assets/images/rooftop-dj-set.png");
 
-  const signInWithGoogle = async () => {
-    const redirectTo = "partyup://auth/callback";
 
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo,
-        skipBrowserRedirect: true,
-      },
-    });
+    
+ const signInWithGoogle = async () => {
 
-    if (error) {
-      Alert.alert("Google sign-in error", error.message);
-      return;
-    }
 
-    if (data?.url) {
-      await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
-    }
-  };
+  const redirectTo = "partyup://auth/callback";
+
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      redirectTo,
+      skipBrowserRedirect: true,
+    },
+  });
+
+  if (error) {
+    Alert.alert("Google sign-in error", error.message);
+    return;
+  }
+
+  if (!data?.url) {
+    Alert.alert("Google sign-in error", "No OAuth URL returned.");
+    return;
+  }
+
+  const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+
+  
+
+  if (result.type !== "success") {
+  return;
+}
+
+const callbackUrl = (result as { url?: string }).url;
+
+if (!callbackUrl) {
+  Alert.alert("Google session error", "Missing callback URL.");
+  return;
+}
+
+  const fragment = callbackUrl.split("#")[1];
+
+  if (!fragment) {
+    Alert.alert("Google session error", "Missing callback fragment.");
+    return;
+  }
+
+  const params = new URLSearchParams(fragment);
+
+  const access_token = params.get("access_token");
+  const refresh_token = params.get("refresh_token");
+
+  if (!access_token || !refresh_token) {
+    Alert.alert("Google session error", "Missing tokens.");
+    return;
+  }
+
+
+const { data: setSessionData, error: sessionError } =
+  await supabase.auth.setSession({
+    access_token,
+    refresh_token,
+  });
+
+
+  if (sessionError) {
+    Alert.alert("Google session error", sessionError.message);
+    return;
+  }
+
+  const { data: sessionData } = await supabase.auth.getSession();
+
+ 
+
+ setTimeout(() => {
+  router.replace("/home");
+}, 300);
+
+};
 
   async function enterGuest() {
     try {

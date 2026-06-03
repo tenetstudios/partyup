@@ -1,4 +1,5 @@
 import { Image } from "expo-image";
+import * as Location from "expo-location";
 import { router } from "expo-router";
 import type { AndroidSymbol, SFSymbol, SymbolViewProps } from "expo-symbols";
 import { SymbolView } from "expo-symbols";
@@ -118,7 +119,6 @@ const ROOM_STATUSES: { value: RoomStatusType; label: string }[] = [
 ];
 
 const TRENDING_SEARCHES = [
-  "Afrobeats",
   "Debate",
   "Late Night",
   "VIP",
@@ -136,7 +136,6 @@ const VIBE_TAGS = [
   "Opinions",
   "No Filter",
   "Music",
-  "Afrobeats",
   "Vibes",
 ];
 
@@ -186,7 +185,7 @@ function getRoomBackdrop(room: Room) {
 function getGreetingName(profile: Profile | null) {
   const username = profile?.username?.trim();
 
-  if (!username) return "Alex";
+  if (!username) return "";
 
   return username.split(" ")[0];
 }
@@ -214,11 +213,31 @@ export default function Home() {
   const [roomMode, setRoomMode] = useState<RoomMode>("livestream");
   const [roomStatus, setRoomStatus] = useState<RoomStatusType>("live");
   const [venueName, setVenueName] = useState("");
+  const [currentLocation, setCurrentLocation] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+  const [currentLocationLoading, setCurrentLocationLoading] = useState(false);
   const [selectedFilter, setSelectedFilter] = useState<(typeof FILTERS)[number]["label"]>("All");
   const [showCreateSheet, setShowCreateSheet] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+
+  useEffect(() => {
+    if (showCreateSheet) {
+      setCurrentLocation(null);
+    }
+  }, [showCreateSheet]);
   const [searchText, setSearchText] = useState("");
   const [isPrivateRoom, setIsPrivateRoom] = useState(false);
+  const [selectedVibes, setSelectedVibes] = useState<string[]>([]);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+     const hour = new Date().getHours();
+    const greeting =
+  hour < 12
+    ? "Good morning,"
+    : hour < 18
+    ? "Good afternoon,"
+    : "Good evening,";
 
   useEffect(() => {
   let mounted = true;
@@ -236,6 +255,63 @@ export default function Home() {
 
   return () => {
     mounted = false;
+  };
+}, []);
+
+useEffect(() => {
+  let mounted = true;
+  let channel: ReturnType<typeof supabase.channel> | null = null;
+
+  async function fetchUnreadCount(userId: string) {
+    const { count, error } = await supabase
+      .from("notifications")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .eq("is_read", false);
+
+    if (error) {
+      console.log("Unread notification count error:", error.message);
+      return;
+    }
+
+    if (mounted) {
+      setUnreadNotificationCount(count ?? 0);
+    }
+  }
+
+  async function setupNotifications() {
+    const { data: userData } = await supabase.auth.getUser();
+    const user = userData.user;
+
+    if (!user || !mounted) return;
+
+    await fetchUnreadCount(user.id);
+
+    channel = supabase
+      .channel(`notifications-home-${user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "notifications",
+          filter: `user_id=eq.${user.id}`,
+        },
+        () => {
+          fetchUnreadCount(user.id);
+        }
+      )
+      .subscribe();
+  }
+
+  setupNotifications();
+
+  return () => {
+    mounted = false;
+
+    if (channel) {
+      supabase.removeChannel(channel);
+    }
   };
 }, []);
 
@@ -311,19 +387,24 @@ const stats = useMemo(() => {
 }, [rooms]);
 
   async function fetchProfile() {
-    const { data: userData } = await supabase.auth.getUser();
-    const user = userData.user;
+  const { data: userData } = await supabase.auth.getUser();
+  const user = userData.user;
 
-    if (!user) return;
+  console.log("CURRENT AUTH USER:", user?.id, user?.email);
 
-    const { data } = await supabase
-      .from("profiles")
-      .select("username, avatar_url")
-      .eq("id", user.id)
-      .maybeSingle();
+  if (!user) return;
 
-    setProfile(data || null);
-  }
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id, auth_user_id, username, avatar_url")
+    .or(`auth_user_id.eq.${user.id},id.eq.${user.id}`)
+    .maybeSingle();
+
+  console.log("PROFILE RESULT:", data);
+  console.log("PROFILE ERROR:", error);
+
+  setProfile(data || null);
+}
 
  async function fetchRooms() {
   const { data, error } = await supabase
@@ -373,6 +454,44 @@ async function syncRoomCounts(roomId: string) {
     .eq("id", roomId);
 }
 
+  async function handleUseCurrentLocation() {
+    if (currentLocationLoading) {
+      return;
+    }
+
+    setCurrentLocationLoading(true);
+
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+
+      if (status !== Location.PermissionStatus.GRANTED) {
+        showAlert(
+          "Location permission denied. Please enable location access to use your current location."
+        );
+        return;
+      }
+
+      const locationResult = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Lowest,
+      });
+
+      if (!locationResult?.coords) {
+        showAlert("Unable to read your location. Please try again.");
+        return;
+      }
+
+      setCurrentLocation({
+        latitude: locationResult.coords.latitude,
+        longitude: locationResult.coords.longitude,
+      });
+    } catch (error) {
+      console.log("Location error:", error);
+      showAlert("Could not get current location. Please try again.");
+    } finally {
+      setCurrentLocationLoading(false);
+    }
+  }
+
   async function createRoom() {
   if (loading) return;
 
@@ -392,7 +511,7 @@ async function syncRoomCounts(roomId: string) {
     return;
   }
 
-  const { data: insertedRoom, error } = await supabase
+  const { data: insertedRoom, error: roomError } = await supabase
     .from("event_rooms")
     .insert({
       title: title.trim(),
@@ -405,48 +524,51 @@ async function syncRoomCounts(roomId: string) {
       mode: roomMode,
       status: roomStatus,
       venue_name: venueName.trim() || null,
+      latitude: currentLocation?.latitude ?? null,
+      longitude: currentLocation?.longitude ?? null,
       last_active_at: new Date().toISOString(),
     })
     .select("id")
     .single();
 
-  if (error) {
+  if (roomError || !insertedRoom?.id) {
     setLoading(false);
-    showAlert(error.message);
+    showAlert(roomError?.message || "Room could not be created.");
     return;
   }
 
-  if (insertedRoom?.id) {
-    await supabase
-      .from("event_attendees")
-      .upsert(
-        {
-          event_room_id: insertedRoom.id,
-          user_id: user.id,
-          username: profile?.username || "Host",
-          avatar_url: profile?.avatar_url || "",
-          status: "accepted",
-          room_role: "host",
-          can_stream: false,
-          stream_status: "off",
-        },
-        {
-          onConflict: "event_room_id,user_id",
-        }
-      );
+  const { error: attendeeError } = await supabase
+    .from("event_attendees")
+    .upsert(
+      {
+        event_room_id: insertedRoom.id,
+        user_id: user.id,
+        username: profile?.username || "Host",
+        avatar_url: profile?.avatar_url || "",
+        status: "accepted",
+        can_stream: true,
+        stream_status: "off",
+      },
+      {
+        onConflict: "event_room_id,user_id",
+      }
+    );
 
-    await syncRoomCounts(insertedRoom.id);
-
-    setTitle("");
-    setShowCreateSheet(false);
+  if (attendeeError) {
     setLoading(false);
-
-    router.push(`/room/${insertedRoom.id}`);
+    showAlert(attendeeError.message);
     return;
   }
 
+  await syncRoomCounts(insertedRoom.id);
+
+  setTitle("");
+  setSelectedVibes([]);
+  setCurrentLocation(null);
+  setShowCreateSheet(false);
   setLoading(false);
-  fetchRooms();
+
+  router.push(`/room/${insertedRoom.id}`);
 }
 
   async function joinQueue(room: Room) {
@@ -558,11 +680,12 @@ async function syncRoomCounts(roomId: string) {
     router.replace("/");
   }
 
+
   function renderRoom({ item, index }: { item: Room; index: number }) {
     const vibes = getRoomVibes(item);
     const isFull = item.current_users >= item.max_users;
     const roomImage = item.cover_image ? { uri: item.cover_image } : getRoomBackdrop(item);
-
+   
     return (
       <View style={styles.roomCard}>
         <View style={styles.roomCardInner}>
@@ -668,10 +791,19 @@ async function syncRoomCounts(roomId: string) {
           </View>
 
           <View style={styles.topActions}>
-            <TouchableOpacity style={styles.iconButton} onPress={fetchRooms}>
-              <Icon name="bell" size={23} color="#FFFFFF" />
-              <View style={styles.notificationDot} />
-            </TouchableOpacity>
+            <TouchableOpacity
+  style={styles.iconButton}
+  onPress={() => router.push("/activity")}
+>
+  <Icon name="bell" size={23} color="#FFFFFF" />
+  {unreadNotificationCount > 0 && (
+    <View style={styles.notificationBadge}>
+      <Text style={styles.notificationBadgeText}>
+        {unreadNotificationCount > 99 ? "99+" : unreadNotificationCount}
+      </Text>
+    </View>
+  )}
+</TouchableOpacity>
             <TouchableOpacity
   style={styles.iconButton}
   onPress={() => setSearchOpen((current) => !current)}
@@ -697,14 +829,15 @@ async function syncRoomCounts(roomId: string) {
        <View style={styles.greetingRow}>
   <View style={styles.greetingText}>
     <Text style={styles.greeting}>
-      Good evening, {getGreetingName(profile)}
-    </Text>
+  {profile?.username
+    ? `${greeting} ${getGreetingName(profile)}`
+    : greeting}
+</Text>
 
     <Text style={styles.subtitle}>
       Find a vibe. Join the conversation. Meet someone new.
     </Text>
   </View>
-
 </View>
 
 {searchOpen && (
@@ -825,14 +958,49 @@ async function syncRoomCounts(roomId: string) {
           <Text style={[styles.navText, styles.navTextActive]}>Home</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.navItem} onPress={() => router.push("/explore")}>
+        <TouchableOpacity style={styles.navItem} onPress={() => router.push("/rooms")}>
           <Icon name="stack" size={25} color="#A0A0AA" />
           <Text style={styles.navText}>Rooms</Text>
         </TouchableOpacity>
 
+        <TouchableOpacity
+  style={styles.navItem}
+  onPress={() => router.push("/explore")}
+>
+  <Icon
+    name="flame"
+    size={25}
+    color="#A0A0AA"
+  />
+
+  <Text style={styles.navText}>
+    Explore
+  </Text>
+</TouchableOpacity>
+
         <TouchableOpacity style={styles.createFab} onPress={() => setShowCreateSheet(true)}>
           <Icon name="plus" size={34} color="#FFFFFF" />
         </TouchableOpacity>
+
+        <TouchableOpacity
+  style={styles.navItem}
+  onPress={() => router.push("/activity")}
+>
+  <View style={styles.navIconContainer}>
+    <Icon name="bell" size={25} color="#A0A0AA" />
+    {unreadNotificationCount > 0 && (
+      <View style={styles.navNotificationBadge}>
+        <Text style={styles.navNotificationBadgeText}>
+          {unreadNotificationCount > 99 ? "99+" : unreadNotificationCount}
+        </Text>
+      </View>
+    )}
+  </View>
+
+  <Text style={styles.navText}>
+    Activity
+  </Text>
+</TouchableOpacity>
 
         <TouchableOpacity style={styles.navItem} onPress={() => router.push("/friends")}>
           <Icon name="person2" size={27} color="#A0A0AA" />
@@ -886,6 +1054,24 @@ async function syncRoomCounts(roomId: string) {
               placeholderTextColor="#7F778D"
               style={styles.input}
             />
+
+            <TouchableOpacity
+              style={styles.locationButton}
+              onPress={handleUseCurrentLocation}
+              disabled={currentLocationLoading}
+            >
+              <Text style={styles.locationButtonText}>
+                {currentLocationLoading
+                  ? "Checking location..."
+                  : "Use Current Location"}
+              </Text>
+            </TouchableOpacity>
+
+            {currentLocation ? (
+              <Text style={styles.locationStatusText}>
+                Location added
+              </Text>
+            ) : null}
 
             <View style={styles.controlGroup}>
               <Text style={styles.controlLabel}>Event type</Text>
@@ -978,6 +1164,44 @@ async function syncRoomCounts(roomId: string) {
 
 <View style={styles.controlGroup}>
   <Text style={styles.controlLabel}>
+    Vibes
+  </Text>
+
+  <View style={styles.choiceRow}>
+    {VIBE_TAGS.map((tag) => {
+      const active = selectedVibes.includes(tag);
+
+      return (
+        <TouchableOpacity
+          key={tag}
+          style={[
+            styles.choicePill,
+            active && styles.choicePillActive,
+          ]}
+          onPress={() =>
+            setSelectedVibes((current) =>
+              current.includes(tag)
+                ? current.filter((item) => item !== tag)
+                : [...current, tag]
+            )
+          }
+        >
+          <Text
+            style={[
+              styles.choicePillText,
+              active && styles.choicePillTextActive,
+            ]}
+          >
+            {tag}
+          </Text>
+        </TouchableOpacity>
+      );
+    })}
+  </View>
+</View>
+
+<View style={styles.controlGroup}>
+  <Text style={styles.controlLabel}>
     Privacy
   </Text>
 
@@ -1019,15 +1243,6 @@ async function syncRoomCounts(roomId: string) {
     {loading
       ? "Creating..."
       : "Open Room"}
-  </Text>
-</TouchableOpacity>
-
-<TouchableOpacity
-  style={styles.signOutButton}
-  onPress={signOut}
->
-  <Text style={styles.signOutText}>
-    Sign Out
   </Text>
 </TouchableOpacity>
 
@@ -1079,14 +1294,22 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 42,
   },
-  notificationDot: {
-    backgroundColor: "#7C3AED",
-    borderRadius: 7,
-    height: 14,
+  notificationBadge: {
+    backgroundColor: "#EC4899",
+    borderRadius: 999,
+    height: 20,
+    minWidth: 20,
     position: "absolute",
-    right: 5,
-    top: 4,
-    width: 14,
+    right: -2,
+    top: -2,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 4,
+  },
+  notificationBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "900",
   },
   profileAvatar: {
     alignItems: "center",
@@ -1511,6 +1734,28 @@ const styles = StyleSheet.create({
   navTextActive: {
     color: "#8B5CF6",
   },
+  navIconContainer: {
+    position: "relative",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  navNotificationBadge: {
+    backgroundColor: "#EC4899",
+    borderRadius: 999,
+    height: 16,
+    minWidth: 16,
+    position: "absolute",
+    right: -6,
+    top: -4,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 3,
+  },
+  navNotificationBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 8,
+    fontWeight: "900",
+  },
   createFab: {
     alignItems: "center",
     backgroundColor: "#8B5CF6",
@@ -1618,6 +1863,26 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 16,
     fontWeight: "900",
+  },
+  locationButton: {
+    alignItems: "center",
+    backgroundColor: "#1F1D2D",
+    borderColor: "#4C3E6A",
+    borderWidth: 1,
+    borderRadius: 16,
+    minHeight: 50,
+    justifyContent: "center",
+    marginBottom: 8,
+  },
+  locationButtonText: {
+    color: "#D8B4FE",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  locationStatusText: {
+    color: "#9CA3AF",
+    fontSize: 13,
+    marginBottom: 12,
   },
   signOutButton: {
     alignItems: "center",

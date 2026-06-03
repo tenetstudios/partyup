@@ -1,13 +1,13 @@
-import { useEffect, useState } from "react";
 import { Image } from "expo-image";
+import { router, useLocalSearchParams } from "expo-router";
+import { useEffect, useState } from "react";
 import {
   ScrollView,
-  View,
+  StyleSheet,
   Text,
   TouchableOpacity,
-  StyleSheet,
+  View,
 } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
 import { supabase } from "../../../lib/supabase";
 
 type ProfileView = {
@@ -62,6 +62,16 @@ export default function UserProfile() {
 
     setProfile(profileData as ProfileView);
 
+    const loaded = await loadProfileStats(profileId, userId);
+    if (!loaded) {
+      setLoading(false);
+      return;
+    }
+
+    setLoading(false);
+  }
+
+  async function loadProfileStats(profileId: string, userId: string) {
     const followersQuery = supabase
       .from("follows")
       .select("id")
@@ -94,8 +104,7 @@ export default function UserProfile() {
       liveRes.error
     ) {
       window.alert("Failed to load profile stats.");
-      setLoading(false);
-      return;
+      return false;
     }
 
     setFollowers((followersRes.data || []).length);
@@ -114,49 +123,47 @@ export default function UserProfile() {
       if (!followError) {
         setIsFollowing(!!followData);
       }
+    } else {
+      setIsFollowing(false);
     }
 
-    setLoading(false);
+    return true;
   }
 
   async function toggleFollow() {
     if (!profile || processing || !currentUserId) return;
     if (currentUserId === profile.id) return;
 
-    setProcessing(true);
+    try {
+      setProcessing(true);
 
-    if (isFollowing) {
-      const { error } = await supabase
-        .from("follows")
-        .delete()
-        .eq("follower_id", currentUserId)
-        .eq("following_id", profile.id);
+      if (isFollowing) {
+        const { error } = await supabase
+          .from("follows")
+          .delete()
+          .eq("follower_id", currentUserId)
+          .eq("following_id", profile.id);
 
-      if (error) {
-        window.alert(error.message);
-        setProcessing(false);
-        return;
+        if (error) {
+          window.alert(error.message);
+          return;
+        }
+      } else {
+        const { error } = await supabase.from("follows").insert({
+          follower_id: currentUserId,
+          following_id: profile.id,
+        });
+
+        if (error) {
+          window.alert(error.message);
+          return;
+        }
       }
 
-      setIsFollowing(false);
-      setFollowers((prev) => Math.max(prev - 1, 0));
-    } else {
-      const { error } = await supabase.from("follows").insert({
-        follower_id: currentUserId,
-        following_id: profile.id,
-      });
-
-      if (error) {
-        window.alert(error.message);
-        setProcessing(false);
-        return;
-      }
-
-      setIsFollowing(true);
-      setFollowers((prev) => prev + 1);
+      await loadProfileStats(profile.id, currentUserId);
+    } finally {
+      setProcessing(false);
     }
-
-    setProcessing(false);
   }
 
   return (

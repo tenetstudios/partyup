@@ -179,6 +179,13 @@ export default function Profile() {
     >
       <Text style={styles.title}>Choose your name</Text>
 
+      <TouchableOpacity
+  onPress={() => router.back()}
+  style={styles.closeButton}
+>
+  <Text style={styles.closeButtonText}>✕</Text>
+</TouchableOpacity>
+
       <Text style={styles.subtitle}>
         This is how people see you in rooms.
       </Text>
@@ -227,6 +234,16 @@ export default function Profile() {
         >
           <Text style={styles.skipText}>Skip for now</Text>
         </TouchableOpacity>
+
+        <TouchableOpacity
+  style={styles.signOutButton}
+  onPress={async () => {
+    await supabase.auth.signOut();
+    router.replace("/");
+  }}
+>
+  <Text style={styles.signOutText}>Sign Out</Text>
+</TouchableOpacity>
       </View>
     </ScrollView>
   );
@@ -319,4 +336,36 @@ const styles = StyleSheet.create({
     color: "#777",
     fontWeight: "700",
   },
+  closeButton: {
+  position: "absolute",
+  top: 54,
+  right: 22,
+  width: 42,
+  height: 42,
+  borderRadius: 999,
+  backgroundColor: "#14141F",
+  justifyContent: "center",
+  alignItems: "center",
+  zIndex: 50,
+},
+
+closeButtonText: {
+  color: "#FFFFFF",
+  fontSize: 18,
+  fontWeight: "900",
+},
+
+signOutButton: {
+  marginTop: 24,
+  backgroundColor: "#ff4d4f",
+  paddingVertical: 14,
+  borderRadius: 12,
+  alignItems: "center",
+},
+
+signOutText: {
+  color: "#fff",
+  fontSize: 16,
+  fontWeight: "700",
+},
 });

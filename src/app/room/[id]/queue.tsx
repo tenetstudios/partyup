@@ -19,6 +19,7 @@ type Room = {
   current_users: number;
   queue_count: number;
   max_users: number;
+  is_private: boolean;
 };
 
 type UserRow = {
