@@ -53,8 +53,6 @@ function VideoGrid() {
     !!trackRef.publication?.track
 );
 
-  const [selectedSid, setSelectedSid] = useState<string | null>(null);
-
   if (videoTracks.length === 0) {
     return (
       <View style={styles.placeholder}>
@@ -65,11 +63,7 @@ function VideoGrid() {
     );
   }
 
-  const selectedTrack =
-    videoTracks.find(
-      (trackRef: any) =>
-        trackRef.publication?.trackSid === selectedSid
-    ) || videoTracks[0];
+  const selectedTrack = videoTracks[0];
 
   return (
     <View style={styles.feedLayout}>
@@ -77,6 +71,7 @@ function VideoGrid() {
         <VideoTrack
           trackRef={selectedTrack}
           style={styles.video}
+          objectFit="cover"
         />
 
         <View style={styles.feedNameBadge}>
@@ -88,43 +83,6 @@ function VideoGrid() {
         </View>
       </View>
 
-      <View style={styles.cameraGrid}>
-        {videoTracks.map((trackRef: any, index: number) => {
-          const sid =
-            trackRef.publication?.trackSid ||
-            `${trackRef.participant.identity}-${index}`;
-
-          const isSelected =
-            selectedTrack.publication?.trackSid ===
-            trackRef.publication?.trackSid;
-
-          return (
-            <TouchableOpacity
-              key={sid}
-              style={[
-                styles.cameraThumb,
-                isSelected && styles.cameraThumbActive,
-              ]}
-              onPress={() =>
-                setSelectedSid(trackRef.publication?.trackSid)
-              }
-            >
-              <VideoTrack
-                trackRef={trackRef}
-                style={styles.cameraThumbVideo}
-              />
-
-              <View style={styles.cameraThumbLabel}>
-                <Text style={styles.cameraThumbText}>
-                  {trackRef.participant.name ||
-                    trackRef.participant.identity ||
-                    "Camera"}
-                </Text>
-              </View>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
     </View>
   );
 }
@@ -543,12 +501,10 @@ const styles = StyleSheet.create({
     flex: 1,
     width: "100%",
     height: "100%",
-    gap: 12,
   },
 
   mainFeed: {
     flex: 1,
-    minHeight: 320,
     borderRadius: 24,
     overflow: "hidden",
     backgroundColor: "#050509",
@@ -558,50 +514,6 @@ const styles = StyleSheet.create({
   video: {
     width: "100%",
     height: "100%",
-  },
-
-  cameraGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    paddingHorizontal: 10,
-    paddingBottom: 10,
-  },
-
-  cameraThumb: {
-    width: 110,
-    height: 78,
-    borderRadius: 14,
-    overflow: "hidden",
-    backgroundColor: "#111",
-    borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.08)",
-  },
-
-  cameraThumbActive: {
-    borderColor: "#A855F7",
-  },
-
-  cameraThumbVideo: {
-    width: "100%",
-    height: "100%",
-  },
-
-  cameraThumbLabel: {
-    position: "absolute",
-    left: 6,
-    right: 6,
-    bottom: 6,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    borderRadius: 999,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-  },
-
-  cameraThumbText: {
-    color: "white",
-    fontSize: 10,
-    fontWeight: "800",
   },
 
   controls: {
