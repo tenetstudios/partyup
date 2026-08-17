@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Ionicons } from "@expo/vector-icons";
 import {
   Animated,
   Pressable,
@@ -193,6 +194,7 @@ function StreamControls({ canPublish }: { canPublish: boolean }) {
         ]}
         onPress={toggleMic}
       >
+        <Ionicons name={micOn ? "mic" : "mic-off"} size={16} color="#FFFFFF" />
         <Text style={styles.controlText}>
           {micOn ? "Mute" : "Unmute"}
         </Text>
@@ -205,6 +207,7 @@ function StreamControls({ canPublish }: { canPublish: boolean }) {
         ]}
         onPress={toggleCamera}
       >
+        <Ionicons name={cameraOn ? "videocam" : "videocam-off"} size={16} color="#FFFFFF" />
         <Text style={styles.controlText}>
   {!canPublish
     ? "Needs Approval"
@@ -218,6 +221,7 @@ function StreamControls({ canPublish }: { canPublish: boolean }) {
         style={styles.controlButton}
         onPress={toggleCameraFacing}
       >
+        <Ionicons name="camera-reverse" size={16} color="#FFFFFF" />
         <Text style={styles.controlText}>
           {isFrontCamera
             ? "Back Cam"
@@ -425,29 +429,36 @@ const styles = StyleSheet.create({
 
   controls: {
   position: "absolute",
-  left: 16,
-  right: 16,
-  bottom: 24,
-  gap: 10,
+  left: 12,
+  right: 12,
+  bottom: 12,
+  flexDirection: "row",
+  gap: 8,
   zIndex: 9999,
   elevation: 9999,
 },
 
   controlButton: {
     flex: 1,
-    backgroundColor: "#7C3AED",
+    backgroundColor: "rgba(124,58,237,0.9)",
     borderRadius: 999,
-    paddingVertical: 12,
+    minHeight: 40,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
     alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 6,
   },
 
   controlButtonOff: {
-    backgroundColor: "#2A2A35",
+    backgroundColor: "rgba(42,42,53,0.92)",
   },
 
   controlText: {
     color: "white",
     fontWeight: "900",
+    fontSize: 11,
   },
 
   debugText: {
