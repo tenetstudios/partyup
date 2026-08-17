@@ -38,6 +38,12 @@ export type MatchConnectionResult = {
   connectionId: string | null;
 };
 
+export type EventMatchPoolResult = {
+  poolId: string;
+  name: string | null;
+  sourceEventRoomId: string;
+};
+
 type UnknownRecord = Record<string, unknown>;
 
 function firstRow(value: unknown): unknown {
@@ -122,6 +128,32 @@ export function normalizeMatchConnectionResult(data: unknown): MatchConnectionRe
   };
 }
 
+export function normalizeEventMatchPoolResult(data: unknown): EventMatchPoolResult {
+  const row = firstRow(data);
+
+  if (!row || typeof row !== "object") {
+    throw new Error("Event Match returned an unexpected response.");
+  }
+
+  const record = row as UnknownRecord;
+  const poolId = readString(record, ["poolId", "pool_id", "id"]);
+  const sourceEventRoomId = readString(record, [
+    "sourceEventRoomId",
+    "source_event_room_id",
+    "event_room_id",
+  ]);
+
+  if (!poolId || !sourceEventRoomId) {
+    throw new Error("Event Match did not return a usable pool.");
+  }
+
+  return {
+    poolId,
+    name: readString(record, ["name"]),
+    sourceEventRoomId,
+  };
+}
+
 export async function ensurePartyUpIdentity(): Promise<PartyUpIdentity> {
   const { data, error } = await supabase.rpc("ensure_partyup_identity");
 
@@ -165,7 +197,31 @@ export async function getMatchPool(poolId: string): Promise<MatchPool> {
     throw new Error("That Match pool was not found.");
   }
 
-  return row as MatchPool;
+  const pool = row as MatchPool;
+
+  if (pool.status !== "active") {
+    throw new Error("That Match pool is not active.");
+  }
+
+  if (pool.expires_at && Date.parse(pool.expires_at) <= Date.now()) {
+    throw new Error("That Match pool has ended.");
+  }
+
+  return pool;
+}
+
+export async function getOrCreateEventMatchPool(
+  eventRoomId: string,
+): Promise<EventMatchPoolResult> {
+  const { data, error } = await supabase.rpc("get_or_create_event_match_pool", {
+    p_event_room_id: eventRoomId,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return normalizeEventMatchPoolResult(data);
 }
 
 export async function enqueueAndMatch(poolId: string): Promise<EnqueueMatchResult> {

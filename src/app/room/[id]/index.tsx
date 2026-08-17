@@ -16,6 +16,7 @@ import {
 } from "react-native";
 import { supabase } from "../../../../lib/supabase";
 import LiveKitRoomView from "../../../components/LiveKitRoomView";
+import { getOrCreateEventMatchPool } from "../../../lib/matchmaking";
 
 type RoomType = "party" | "concert" | "dj_set" | "popup" | "sports" | "watch_party";
 type RoomMode = "irl" | "livestream" | "hybrid";
@@ -249,6 +250,8 @@ export default function RoomScreen() {
   const [activeTab, setActiveTab] = useState<"chat" | "people" | "queue">("chat");
   const [showManageRoom, setShowManageRoom] = useState(false);
   const [activities, setActivities] =useState<RoomActivity[]>([]);
+  const [eventMatchError, setEventMatchError] = useState<string | null>(null);
+  const [eventMatchLoading, setEventMatchLoading] = useState(false);
   const [roomDeleted, setRoomDeleted] = useState(false);
 
   useEffect(() => {
@@ -752,6 +755,38 @@ await supabase
   router.replace("/home");
 }
 
+async function startEventMatch() {
+  if (!room || eventMatchLoading) {
+    return;
+  }
+
+  setEventMatchLoading(true);
+  setEventMatchError(null);
+
+  try {
+    const { data } = await supabase.auth.getUser();
+    const user = data.user;
+
+    if (!user || (user as { is_anonymous?: boolean }).is_anonymous) {
+      throw new Error("Sign in to use Match in this event.");
+    }
+
+    const pool = await getOrCreateEventMatchPool(room.id);
+
+    router.push({
+      pathname: "/match",
+      params: {
+        pool: pool.poolId,
+        roomId: room.id,
+      },
+    });
+    setEventMatchLoading(false);
+  } catch (reason) {
+    setEventMatchError(reason instanceof Error ? reason.message : "Could not start event Match.");
+    setEventMatchLoading(false);
+  }
+}
+
   async function sendMessage() {
     if (!messageText.trim()) return;
 
@@ -1217,6 +1252,29 @@ const requestedStreamers = [
   hostProfile?.username?.trim() ||
   (room.host_id ? `Host ${room.host_id.slice(0, 4)}` : "Host");
 
+  const eventMatchAction = (
+    <View style={styles.eventMatchCard}>
+      <View style={styles.eventMatchTextBlock}>
+        <Text style={styles.eventMatchTitle}>Match with people here</Text>
+        <Text style={styles.eventMatchSubtitle}>Meet someone else in this event.</Text>
+      </View>
+
+      <TouchableOpacity
+        style={[styles.eventMatchButton, eventMatchLoading && styles.disabledButton]}
+        onPress={startEventMatch}
+        disabled={eventMatchLoading}
+      >
+        <Text style={styles.eventMatchButtonText}>
+          {eventMatchLoading ? "Opening Match..." : "Match with people here"}
+        </Text>
+      </TouchableOpacity>
+
+      {eventMatchError && (
+        <Text style={styles.eventMatchError}>{eventMatchError}</Text>
+      )}
+    </View>
+  );
+
   const chatSection = (
     <View style={[styles.chatPane, !isDesktop && styles.chatPaneMobile]}>
       <View style={styles.chatHeader}>
@@ -1296,6 +1354,7 @@ const requestedStreamers = [
       </Text>
     </View>
   );
+
 }}
         ListEmptyComponent={<Text style={styles.empty}>No messages yet.</Text>}
       />
@@ -1391,6 +1450,8 @@ const requestedStreamers = [
               )}
             </View>
           </View>
+
+          {isDesktop && eventMatchAction}
 
           <View style={styles.streamGrid}>
   <Text style={styles.streamGridTitle}>Live Cameras</Text>
@@ -1494,6 +1555,8 @@ const requestedStreamers = [
                   {room.status && <View style={styles.heroTagLive}><Text style={styles.heroTagText}>{room.status}</Text></View>}
                 </View>
                 <Text style={styles.heroSubtitle}>Good vibes only. Pull up and meet new people.</Text>
+
+                {eventMatchAction}
 
                 <View style={styles.roomTabsRow}>
   <TouchableOpacity
@@ -2304,6 +2367,51 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     fontWeight: "700",
     fontSize: 12,
+  },
+  eventMatchCard: {
+    backgroundColor: "rgba(14, 12, 26, 0.96)",
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: "rgba(236,72,153,0.24)",
+    padding: 18,
+    marginBottom: 20,
+    gap: 14,
+  },
+  eventMatchTextBlock: {
+    gap: 4,
+  },
+  eventMatchTitle: {
+    color: "white",
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  eventMatchSubtitle: {
+    color: "#C2B7ED",
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  eventMatchButton: {
+    alignItems: "center",
+    backgroundColor: "#EC4899",
+    borderRadius: 999,
+    justifyContent: "center",
+    minHeight: 48,
+    paddingHorizontal: 18,
+  },
+  eventMatchButtonText: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  eventMatchError: {
+    color: "#FCA5A5",
+    fontSize: 13,
+    fontWeight: "800",
+    lineHeight: 18,
+  },
+  disabledButton: {
+    opacity: 0.55,
   },
   attendeeCard: {
     flexDirection: "row",

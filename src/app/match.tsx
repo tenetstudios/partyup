@@ -1,5 +1,5 @@
 import type { RealtimeChannel, User } from "@supabase/supabase-js";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { supabase } from "../../lib/supabase";
@@ -11,6 +11,7 @@ import {
   getCurrentMatchQueueState,
   getGlobalMatchPool,
   getMatchSession,
+  getMatchPool,
   nextMatch,
   type MatchPool,
   type MatchSession,
@@ -22,7 +23,16 @@ function isAnonymousUser(user: User | null) {
   return Boolean((user as { is_anonymous?: boolean } | null)?.is_anonymous);
 }
 
+function readParam(value: string | string[] | undefined): string | null {
+  const candidate = Array.isArray(value) ? value[0] : value;
+
+  return candidate && candidate.trim().length > 0 ? candidate : null;
+}
+
 export default function MatchScreen() {
+  const params = useLocalSearchParams<{ pool?: string | string[]; roomId?: string | string[] }>();
+  const initialPoolId = readParam(params.pool);
+  const returnRoomId = readParam(params.roomId);
   const [authLoading, setAuthLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,6 +40,7 @@ export default function MatchScreen() {
   const [disconnectedMessage, setDisconnectedMessage] = useState<string | null>(null);
   const [disconnectedSessionId, setDisconnectedSessionId] = useState<string | null>(null);
   const [nextBusy, setNextBusy] = useState(false);
+  const [poolLoading, setPoolLoading] = useState(Boolean(initialPoolId));
   const [activePool, setActivePool] = useState<MatchPool | null>(null);
   const [searchIdentityId, setSearchIdentityId] = useState<string | null>(null);
   const [session, setSession] = useState<MatchSession | null>(null);
@@ -38,6 +49,10 @@ export default function MatchScreen() {
   const sessionChannelRef = useRef<RealtimeChannel | null>(null);
 
   const hasAccount = Boolean(user && !isAnonymousUser(user));
+  const contextLabel =
+    initialPoolId && (activePool?.pool_type === "event" || !activePool)
+      ? "Matching with people here"
+      : null;
 
   const clearSubscription = useCallback(() => {
     if (channelRef.current) {
@@ -217,6 +232,49 @@ export default function MatchScreen() {
   }, [clearSessionSubscription, clearSubscription]);
 
   useEffect(() => {
+    let mounted = true;
+
+    async function loadInitialPool() {
+      if (!initialPoolId) {
+        setActivePool(null);
+        setPoolLoading(false);
+        return;
+      }
+
+      setPoolLoading(true);
+      setError(null);
+
+      try {
+        const pool = await getMatchPool(initialPoolId);
+
+        if (!mounted) {
+          return;
+        }
+
+        setActivePool(pool);
+      } catch (reason) {
+        if (!mounted) {
+          return;
+        }
+
+        setActivePool(null);
+        setError(reason instanceof Error ? reason.message : "That Match pool could not be loaded.");
+        setMatchState("error");
+      } finally {
+        if (mounted) {
+          setPoolLoading(false);
+        }
+      }
+    }
+
+    void loadInitialPool();
+
+    return () => {
+      mounted = false;
+    };
+  }, [initialPoolId]);
+
+  useEffect(() => {
     if (matchState !== "searching" || !searchIdentityId) {
       return;
     }
@@ -291,7 +349,7 @@ export default function MatchScreen() {
   ]);
 
   async function startMatching() {
-    if (busy) {
+    if (busy || poolLoading) {
       return;
     }
 
@@ -321,7 +379,7 @@ export default function MatchScreen() {
       }
 
       const identity = await ensurePartyUpIdentity();
-      const pool = activePool ?? (await getGlobalMatchPool());
+      const pool = initialPoolId ? await getMatchPool(initialPoolId) : activePool ?? (await getGlobalMatchPool());
       const result = await enqueueAndMatch(pool.id);
       setActivePool(pool);
 
@@ -372,6 +430,11 @@ export default function MatchScreen() {
   function returnHome() {
     clearSubscription();
     clearSessionSubscription();
+    if (returnRoomId) {
+      router.push(`/room/${returnRoomId}`);
+      return;
+    }
+
     router.push("/home");
   }
 
@@ -433,6 +496,7 @@ export default function MatchScreen() {
     return (
       <View style={styles.page}>
         <Text style={styles.title}>Match</Text>
+        {contextLabel && <Text style={styles.contextText}>{contextLabel}</Text>}
         <Text style={styles.subtitle}>Sign in to test Match</Text>
 
         <TouchableOpacity style={styles.primaryButton} onPress={() => router.replace("/")}>
@@ -472,20 +536,25 @@ export default function MatchScreen() {
       {matchState === "idle" && (
         <>
           <Text style={styles.title}>Match</Text>
-          <Text style={styles.subtitle}>Meet someone new.</Text>
+          {contextLabel && <Text style={styles.contextText}>{contextLabel}</Text>}
+          <Text style={styles.subtitle}>
+            {contextLabel ? "Meet someone else in this event." : "Meet someone new."}
+          </Text>
 
           <TouchableOpacity
-            style={[styles.primaryButton, busy && styles.disabledButton]}
+            style={[styles.primaryButton, (busy || poolLoading) && styles.disabledButton]}
             onPress={startMatching}
-            disabled={busy}
+            disabled={busy || poolLoading}
           >
             <Text style={styles.primaryButtonText}>
-              {busy ? "Starting..." : "Start Matching"}
+              {busy || poolLoading ? "Starting..." : "Start Matching"}
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.secondaryButton} onPress={returnHome}>
-            <Text style={styles.secondaryButtonText}>Return Home</Text>
+            <Text style={styles.secondaryButtonText}>
+              {returnRoomId ? "Return to Event" : "Return Home"}
+            </Text>
           </TouchableOpacity>
         </>
       )}
@@ -493,6 +562,7 @@ export default function MatchScreen() {
       {matchState === "searching" && (
         <>
           <ActivityIndicator color="#E9D5FF" />
+          {contextLabel && <Text style={styles.contextText}>{contextLabel}</Text>}
           <Text style={styles.title}>
             {nextBusy ? "Finding someone new..." : "Finding someone..."}
           </Text>
@@ -512,10 +582,13 @@ export default function MatchScreen() {
       {matchState === "matched" && (
         <>
           <Text style={styles.title}>Matched</Text>
+          {contextLabel && <Text style={styles.contextText}>{contextLabel}</Text>}
           <Text style={styles.errorText}>The matched session could not be opened.</Text>
 
           <TouchableOpacity style={styles.secondaryButton} onPress={returnHome}>
-            <Text style={styles.secondaryButtonText}>Return Home</Text>
+            <Text style={styles.secondaryButtonText}>
+              {returnRoomId ? "Return to Event" : "Return Home"}
+            </Text>
           </TouchableOpacity>
         </>
       )}
@@ -523,6 +596,7 @@ export default function MatchScreen() {
       {matchState === "disconnected" && (
         <>
           <Text style={styles.title}>Connection ended</Text>
+          {contextLabel && <Text style={styles.contextText}>{contextLabel}</Text>}
           <Text style={styles.subtitle}>{disconnectedMessage ?? "Connection ended."}</Text>
 
           <TouchableOpacity
@@ -536,7 +610,9 @@ export default function MatchScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.secondaryButton} onPress={returnHome}>
-            <Text style={styles.secondaryButtonText}>Return Home</Text>
+            <Text style={styles.secondaryButtonText}>
+              {returnRoomId ? "Return to Event" : "Return Home"}
+            </Text>
           </TouchableOpacity>
         </>
       )}
@@ -544,18 +620,21 @@ export default function MatchScreen() {
       {matchState === "error" && (
         <>
           <Text style={styles.title}>Match</Text>
+          {contextLabel && <Text style={styles.contextText}>{contextLabel}</Text>}
           <Text style={styles.errorText}>{error ?? "Something went wrong."}</Text>
 
           <TouchableOpacity
-            style={[styles.primaryButton, busy && styles.disabledButton]}
+            style={[styles.primaryButton, (busy || poolLoading) && styles.disabledButton]}
             onPress={startMatching}
-            disabled={busy}
+            disabled={busy || poolLoading}
           >
-            <Text style={styles.primaryButtonText}>Retry</Text>
+            <Text style={styles.primaryButtonText}>{poolLoading ? "Loading..." : "Retry"}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.secondaryButton} onPress={returnHome}>
-            <Text style={styles.secondaryButtonText}>Return Home</Text>
+            <Text style={styles.secondaryButtonText}>
+              {returnRoomId ? "Return to Event" : "Return Home"}
+            </Text>
           </TouchableOpacity>
         </>
       )}
@@ -584,6 +663,14 @@ const styles = StyleSheet.create({
     marginTop: 10,
     marginBottom: 28,
     textAlign: "center",
+  },
+  contextText: {
+    color: "#F9A8D4",
+    fontSize: 13,
+    fontWeight: "900",
+    marginTop: 10,
+    textAlign: "center",
+    textTransform: "uppercase",
   },
   muted: {
     color: "#A1A1AA",
