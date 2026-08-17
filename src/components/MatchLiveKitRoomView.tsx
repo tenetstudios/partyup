@@ -12,6 +12,7 @@ import {
 import { Track } from "livekit-client";
 import type { TrackReference } from "@livekit/react-native";
 import { supabase } from "../../lib/supabase";
+import { getMatchConnectionState, keepMatchConnection } from "../lib/matchmaking";
 
 registerGlobals();
 
@@ -204,6 +205,10 @@ function MatchCallView({
   const { localParticipant } = useLocalParticipant();
   const room = useRoomContext();
   const [cameraEnabled, setCameraEnabled] = useState(false);
+  const [keepInTouchMessage, setKeepInTouchMessage] = useState<string | null>(null);
+  const [keepInTouchStatus, setKeepInTouchStatus] = useState<
+    "idle" | "saving" | "saved" | "connected"
+  >("idle");
   const [mediaMessage, setMediaMessage] = useState<string | null>(null);
   const [microphoneEnabled, setMicrophoneEnabled] = useState(false);
 
@@ -225,6 +230,60 @@ function MatchCallView({
   const remoteTrack = cameraTracks.find(
     (trackRef) => trackRef.participant.identity !== localIdentity,
   );
+
+  useEffect(() => {
+    setKeepInTouchStatus("idle");
+    setKeepInTouchMessage(null);
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (keepInTouchStatus !== "saved") {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function checkConnectionState() {
+      try {
+        const result = await getMatchConnectionState(sessionId);
+
+        if (!cancelled && result.mutual) {
+          setKeepInTouchStatus("connected");
+          setKeepInTouchMessage("You're connected.");
+        }
+      } catch {
+        // The saved vote remains valid; polling is only a confirmation fallback.
+      }
+    }
+
+    const channel = supabase
+      .channel(`mobile-match-connection:${sessionId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "partyup_connections",
+          filter: `source_match_session_id=eq.${sessionId}`,
+        },
+        () => {
+          void checkConnectionState();
+        },
+      )
+      .subscribe();
+
+    void checkConnectionState();
+
+    const intervalId = setInterval(() => {
+      void checkConnectionState();
+    }, 2000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+      supabase.removeChannel(channel);
+    };
+  }, [keepInTouchStatus, sessionId]);
 
   useEffect(() => {
     if (status !== "connected") {
@@ -300,6 +359,34 @@ function MatchCallView({
     }
   }
 
+  async function saveKeepInTouch() {
+    if (keepInTouchStatus === "saving" || keepInTouchStatus === "connected") {
+      return;
+    }
+
+    const previousStatus = keepInTouchStatus;
+    setKeepInTouchStatus("saving");
+    setKeepInTouchMessage(null);
+
+    try {
+      const result = await keepMatchConnection(sessionId);
+
+      if (result.mutual) {
+        setKeepInTouchStatus("connected");
+        setKeepInTouchMessage("You're connected.");
+        return;
+      }
+
+      setKeepInTouchStatus("saved");
+      setKeepInTouchMessage("Saved. You'll connect if they choose the same.");
+    } catch (reason) {
+      setKeepInTouchStatus(previousStatus);
+      setKeepInTouchMessage(
+        reason instanceof Error ? reason.message : "Could not save Keep in Touch.",
+      );
+    }
+  }
+
   async function moveNext() {
     if (nextBusy) {
       return;
@@ -316,6 +403,17 @@ function MatchCallView({
     room.disconnect();
     onReturnToMatch();
   }
+
+  const keepInTouchLabel =
+    keepInTouchStatus === "connected"
+      ? "Connected"
+      : keepInTouchStatus === "saved"
+        ? "Saved"
+        : keepInTouchStatus === "saving"
+          ? "Saving..."
+          : "Keep in Touch";
+  const keepInTouchDisabled =
+    keepInTouchStatus === "saving" || keepInTouchStatus === "connected";
 
   return (
     <View style={styles.callPage}>
@@ -365,6 +463,35 @@ function MatchCallView({
           <Text style={styles.noticeText}>{mediaMessage ?? message}</Text>
         </View>
       )}
+
+      {keepInTouchMessage && (
+        <View style={styles.keepInTouchNotice}>
+          <Text style={styles.keepInTouchNoticeText}>{keepInTouchMessage}</Text>
+        </View>
+      )}
+
+      <View style={styles.relationshipControls}>
+        <TouchableOpacity
+          style={[
+            styles.keepInTouchButton,
+            keepInTouchStatus === "saved" && styles.keepInTouchButtonSaved,
+            keepInTouchStatus === "connected" && styles.keepInTouchButtonConnected,
+            keepInTouchDisabled && styles.disabledButton,
+          ]}
+          onPress={saveKeepInTouch}
+          disabled={keepInTouchDisabled}
+        >
+          <Text
+            style={[
+              styles.keepInTouchText,
+              keepInTouchStatus === "saved" && styles.keepInTouchTextSaved,
+              keepInTouchStatus === "connected" && styles.keepInTouchTextConnected,
+            ]}
+          >
+            {keepInTouchLabel}
+          </Text>
+        </TouchableOpacity>
+      </View>
 
       <View style={styles.controls}>
         <TouchableOpacity
@@ -444,6 +571,55 @@ const styles = StyleSheet.create({
     minHeight: 48,
     paddingHorizontal: 16,
   },
+  keepInTouchButton: {
+    alignItems: "center",
+    backgroundColor: "rgba(24,20,37,0.96)",
+    borderColor: "rgba(255,255,255,0.14)",
+    borderRadius: 999,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 46,
+    paddingHorizontal: 18,
+  },
+  keepInTouchButtonConnected: {
+    backgroundColor: "#34D399",
+    borderColor: "#6EE7B7",
+  },
+  keepInTouchButtonSaved: {
+    backgroundColor: "#FFFFFF",
+    borderColor: "#FFFFFF",
+  },
+  keepInTouchNotice: {
+    alignSelf: "center",
+    backgroundColor: "rgba(0,0,0,0.72)",
+    borderColor: "rgba(255,255,255,0.12)",
+    borderRadius: 14,
+    borderWidth: 1,
+    bottom: 144,
+    elevation: 36,
+    maxWidth: "88%",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    position: "absolute",
+    zIndex: 36,
+  },
+  keepInTouchNoticeText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  keepInTouchText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  keepInTouchTextConnected: {
+    color: "#050509",
+  },
+  keepInTouchTextSaved: {
+    color: "#050509",
+  },
   localPlaceholder: {
     alignItems: "center",
     backgroundColor: "#181425",
@@ -480,6 +656,15 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     minHeight: 48,
+  },
+  relationshipControls: {
+    alignItems: "center",
+    bottom: 88,
+    elevation: 38,
+    left: 16,
+    position: "absolute",
+    right: 16,
+    zIndex: 38,
   },
   messagePage: {
     alignItems: "center",

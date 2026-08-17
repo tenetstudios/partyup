@@ -32,6 +32,12 @@ export type EnqueueMatchResult = {
   opponent_identity_id: string | null;
 };
 
+export type MatchConnectionResult = {
+  saved?: boolean;
+  mutual: boolean;
+  connectionId: string | null;
+};
+
 type UnknownRecord = Record<string, unknown>;
 
 function firstRow(value: unknown): unknown {
@@ -97,6 +103,22 @@ export function normalizeEnqueueResult(data: unknown): EnqueueMatchResult {
     matched: readBoolean(record, ["matched"]),
     session_id: readString(record, ["session_id", "match_session_id"]),
     opponent_identity_id: readString(record, ["opponent_identity_id"]),
+  };
+}
+
+export function normalizeMatchConnectionResult(data: unknown): MatchConnectionResult {
+  const row = firstRow(data);
+
+  if (!row || typeof row !== "object") {
+    throw new Error("Match connection returned an unexpected response.");
+  }
+
+  const record = row as UnknownRecord;
+
+  return {
+    saved: readBoolean(record, ["saved"]),
+    mutual: readBoolean(record, ["mutual"]),
+    connectionId: readString(record, ["connection_id", "connectionId"]),
   };
 }
 
@@ -168,6 +190,30 @@ export async function nextMatch(sessionId: string): Promise<EnqueueMatchResult> 
   }
 
   return normalizeEnqueueResult(data);
+}
+
+export async function keepMatchConnection(sessionId: string): Promise<MatchConnectionResult> {
+  const { data, error } = await supabase.rpc("keep_match_connection", {
+    p_match_session_id: sessionId,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return normalizeMatchConnectionResult(data);
+}
+
+export async function getMatchConnectionState(sessionId: string): Promise<MatchConnectionResult> {
+  const { data, error } = await supabase.rpc("get_match_connection_state", {
+    p_match_session_id: sessionId,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return normalizeMatchConnectionResult(data);
 }
 
 export async function getCurrentMatchQueueState(
