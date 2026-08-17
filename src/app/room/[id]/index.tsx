@@ -172,6 +172,7 @@ function LivestreamPanel({
   isDesktop,
   userId,
   canPublish,
+  fillParent = false,
   isFullscreen,
   onFullscreen,
   onExitFullscreen,
@@ -183,6 +184,7 @@ function LivestreamPanel({
   isDesktop: boolean;
   userId: string;
   canPublish: boolean;
+  fillParent?: boolean;
   isFullscreen?: boolean;
   onFullscreen?: () => void;
   onExitFullscreen?: () => void;
@@ -195,12 +197,19 @@ function LivestreamPanel({
     : require("../../../../assets/images/rooftop-dj-set.png");
 
   return (
-    <View style={[styles.liveStreamCard, !isDesktop && styles.liveStreamCardMobile]}>
+    <View
+      style={[
+        styles.liveStreamCard,
+        !isDesktop && styles.liveStreamCardMobile,
+        fillParent && styles.liveStreamCardFill,
+      ]}
+    >
       <ImageBackground
   source={backgroundImage}
   style={[
     styles.liveStreamImage,
     isDesktop && styles.liveStreamImageDesktop,
+    fillParent && styles.liveStreamImageFill,
   ]}
   imageStyle={styles.heroImageStyle}
 >
@@ -1569,6 +1578,7 @@ const requestedStreamers = [
                 isDesktop={isDesktop}
                 userId={currentUserId}
                 canPublish={!!myParticipant?.can_stream}
+                fillParent
                 isFullscreen={isFullscreenLive}
                 onFullscreen={() => setIsFullscreenLive(true)}
                 onExitFullscreen={() => setIsFullscreenLive(false)}
@@ -2323,11 +2333,21 @@ const styles = StyleSheet.create({
     minHeight: 160,
     marginBottom: 0,
   },
+  liveStreamCardFill: {
+    flex: 1,
+    height: "100%",
+    minHeight: 0,
+    width: "100%",
+  },
   liveStreamImage: {
   width: "100%",
   height: 180,
   justifyContent: "space-between",
 },
+  liveStreamImageFill: {
+    flex: 1,
+    height: "100%",
+  },
 
   liveStreamOverlay: {
   ...StyleSheet.absoluteFillObject,
