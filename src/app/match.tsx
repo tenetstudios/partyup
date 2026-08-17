@@ -3,6 +3,7 @@ import { router } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { supabase } from "../../lib/supabase";
+import MatchLiveKitRoomView from "../components/MatchLiveKitRoomView";
 import {
   cancelMatchSearch,
   enqueueAndMatch,
@@ -282,6 +283,19 @@ export default function MatchScreen() {
     );
   }
 
+  if (matchState === "matched" && session?.id) {
+    return (
+      <MatchLiveKitRoomView
+        sessionId={session.id}
+        onReturnToMatch={() => {
+          setSession(null);
+          setSearchIdentityId(null);
+          setMatchState("idle");
+        }}
+      />
+    );
+  }
+
   return (
     <View style={styles.page}>
       {matchState === "idle" && (
@@ -325,7 +339,7 @@ export default function MatchScreen() {
       {matchState === "matched" && (
         <>
           <Text style={styles.title}>Matched</Text>
-          <Text style={styles.sessionText}>Session: {session?.id}</Text>
+          <Text style={styles.errorText}>The matched session could not be opened.</Text>
 
           <TouchableOpacity style={styles.secondaryButton} onPress={returnHome}>
             <Text style={styles.secondaryButtonText}>Return Home</Text>
