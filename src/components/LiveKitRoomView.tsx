@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import {
   Animated,
   Pressable,
   Alert,
+  Modal,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -27,6 +28,11 @@ type Props = {
   roomId: string;
   userId: string;
   canPublish: boolean;
+  fullscreen?: boolean;
+  onExitFullscreen?: () => void;
+  onPublishingChange?: (publishing: boolean) => void;
+  publishSignal?: number;
+  stopSignal?: number;
 };
 
 function VideoGrid() {
@@ -122,12 +128,24 @@ function VideoGrid() {
   );
 }
 
-function StreamControls({ canPublish }: { canPublish: boolean }) {
+function StreamControls({
+  canPublish,
+  publishSignal = 0,
+  stopSignal = 0,
+  onPublishingChange,
+}: {
+  canPublish: boolean;
+  publishSignal?: number;
+  stopSignal?: number;
+  onPublishingChange?: (publishing: boolean) => void;
+}) {
   const { localParticipant } = useLocalParticipant();
 
   const [micOn, setMicOn] = useState(false);
   const [cameraOn, setCameraOn] = useState(false);
   const [isFrontCamera, setIsFrontCamera] = useState(true);
+  const lastPublishSignalRef = useRef(publishSignal);
+  const lastStopSignalRef = useRef(stopSignal);
 
 
   async function toggleMic() {
@@ -156,6 +174,64 @@ function StreamControls({ canPublish }: { canPublish: boolean }) {
     Alert.alert("Camera Error", "Could not start your camera.");
   }
 }
+
+async function startPublishing() {
+  if (!canPublish) {
+    Alert.alert(
+      "Cannot Go Live",
+      "The host has not approved you to stream yet."
+    );
+    return;
+  }
+
+  try {
+    await localParticipant.setCameraEnabled(true);
+    setCameraOn(true);
+    onPublishingChange?.(true);
+  } catch (e) {
+    console.log("CAMERA ERROR:", e);
+    Alert.alert("Camera Error", "Could not start your camera.");
+  }
+
+  try {
+    await localParticipant.setMicrophoneEnabled(true);
+    setMicOn(true);
+  } catch (e) {
+    console.log("MIC ERROR:", e);
+  }
+}
+
+async function stopPublishing() {
+  await localParticipant.setCameraEnabled(false);
+  await localParticipant.setMicrophoneEnabled(false);
+  setCameraOn(false);
+  setMicOn(false);
+  onPublishingChange?.(false);
+}
+
+useEffect(() => {
+  if (publishSignal === lastPublishSignalRef.current) {
+    return;
+  }
+
+  lastPublishSignalRef.current = publishSignal;
+  void startPublishing();
+}, [publishSignal]);
+
+useEffect(() => {
+  if (stopSignal === lastStopSignalRef.current) {
+    return;
+  }
+
+  lastStopSignalRef.current = stopSignal;
+  void stopPublishing();
+}, [stopSignal]);
+
+useEffect(() => {
+  if (!canPublish && (cameraOn || micOn)) {
+    void stopPublishing();
+  }
+}, [canPublish, cameraOn, micOn]);
 
  async function toggleCameraFacing() {
   try {
@@ -235,6 +311,11 @@ export default function LiveKitRoomView({
   roomId,
   userId,
   canPublish,
+  fullscreen = false,
+  onExitFullscreen,
+  onPublishingChange,
+  publishSignal = 0,
+  stopSignal = 0,
 }: Props) {
   const [token, setToken] = useState("");
   const livekitUrl = "wss://partyup-zh7itwg3.livekit.cloud";
@@ -331,9 +412,42 @@ function showControls() {
 
   {controlsVisible && (
     <Animated.View style={{ opacity: controlsOpacity }}>
-      <StreamControls canPublish={canPublish} />
+      <StreamControls
+        canPublish={canPublish}
+        publishSignal={publishSignal}
+        stopSignal={stopSignal}
+        onPublishingChange={onPublishingChange}
+      />
     </Animated.View>
   )}
+
+  <Modal visible={fullscreen} animationType="fade">
+    <View style={styles.fullscreenPage}>
+      <Pressable style={styles.fullscreenRoom} onPress={showControls}>
+        <VideoGrid />
+
+        <View style={styles.fullscreenTop}>
+          <TouchableOpacity
+            style={styles.fullscreenCloseButton}
+            onPress={onExitFullscreen}
+          >
+            <Text style={styles.fullscreenCloseText}>Close</Text>
+          </TouchableOpacity>
+        </View>
+
+        {controlsVisible && (
+          <Animated.View style={{ opacity: controlsOpacity }}>
+            <StreamControls
+              canPublish={canPublish}
+              publishSignal={publishSignal}
+              stopSignal={stopSignal}
+              onPublishingChange={onPublishingChange}
+            />
+          </Animated.View>
+        )}
+      </Pressable>
+    </View>
+  </Modal>
 </Pressable>
   </LiveKitRoom>
 );
@@ -344,6 +458,33 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
     minHeight: 320,
+  },
+  fullscreenPage: {
+    backgroundColor: "#000000",
+    flex: 1,
+  },
+  fullscreenRoom: {
+    flex: 1,
+    width: "100%",
+  },
+  fullscreenTop: {
+    left: 18,
+    position: "absolute",
+    right: 18,
+    top: 48,
+    zIndex: 10000,
+    elevation: 10000,
+  },
+  fullscreenCloseButton: {
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(0,0,0,0.66)",
+    borderRadius: 999,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+  },
+  fullscreenCloseText: {
+    color: "white",
+    fontWeight: "900",
   },
 
   placeholder: {

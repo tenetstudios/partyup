@@ -178,6 +178,10 @@ function LivestreamPanel({
   canPublish,
   isFullscreen,
   onFullscreen,
+  onExitFullscreen,
+  onPublishingChange,
+  publishSignal,
+  stopSignal,
 }: {
   room: Room;
   isDesktop: boolean;
@@ -185,6 +189,10 @@ function LivestreamPanel({
   canPublish: boolean;
   isFullscreen?: boolean;
   onFullscreen?: () => void;
+  onExitFullscreen?: () => void;
+  onPublishingChange?: (publishing: boolean) => void;
+  publishSignal?: number;
+  stopSignal?: number;
 }) {
   const backgroundImage = room.cover_image
     ? { uri: room.cover_image }
@@ -213,13 +221,16 @@ function LivestreamPanel({
         </View>
 
         <View style={styles.livestreamPlaceholder}>
-          {!isFullscreen && (
   <LiveKitRoomView
     roomId={room.id}
     userId={userId}
     canPublish={canPublish}
+    fullscreen={Boolean(isFullscreen)}
+    onExitFullscreen={onExitFullscreen}
+    onPublishingChange={onPublishingChange}
+    publishSignal={publishSignal}
+    stopSignal={stopSignal}
   />
-)}
 
           {!isDesktop && (
             <TouchableOpacity style={styles.fullscreenButton} onPress={onFullscreen}>
@@ -258,6 +269,10 @@ export default function RoomScreen() {
   const [activities, setActivities] =useState<RoomActivity[]>([]);
   const [eventMatchError, setEventMatchError] = useState<string | null>(null);
   const [eventMatchLoading, setEventMatchLoading] = useState(false);
+  const [isLocalPublishing, setIsLocalPublishing] = useState(false);
+  const [pendingLocalPublish, setPendingLocalPublish] = useState(false);
+  const [publishSignal, setPublishSignal] = useState(0);
+  const [stopPublishSignal, setStopPublishSignal] = useState(0);
   const [roomDeleted, setRoomDeleted] = useState(false);
 
   useEffect(() => {
@@ -1050,13 +1065,14 @@ async function approveStreamer(person: Participant) {
 
   if (error) {
     window.alert(error.message);
-    return;
+    return false;
   }
 await createActivity(
   "approved_stream",
   "Approved a streamer"
 );
   loadAll();
+  return true;
 }
 
 async function stopStreamer(person: Participant) {
@@ -1070,7 +1086,7 @@ async function stopStreamer(person: Participant) {
 
   if (error) {
     window.alert(error.message);
-    return;
+    return false;
   }
 
   await createActivity(
@@ -1079,6 +1095,7 @@ async function stopStreamer(person: Participant) {
   );
 
   loadAll();
+  return true;
 }
 
 async function loadFriends() {
@@ -1182,6 +1199,18 @@ async function makeBouncer(person: Participant) {
 
   const { width } = useWindowDimensions();
   const isDesktop = width >= 960;
+  const myParticipant = participants.find(
+    (p) => p.user_id === currentUserId
+  );
+
+  useEffect(() => {
+    if (!pendingLocalPublish || !myParticipant?.can_stream) {
+      return;
+    }
+
+    setPendingLocalPublish(false);
+    setPublishSignal((current) => current + 1);
+  }, [myParticipant?.can_stream, pendingLocalPublish]);
 
   if (!room) {
     return (
@@ -1192,10 +1221,6 @@ async function makeBouncer(person: Participant) {
   }
 
   const isHost = currentUserId === room.host_id;
-  const myParticipant = participants.find(
-  (p) => p.user_id === currentUserId
-);
-
 const isBouncer =
   myParticipant?.room_role === "bouncer" ||
   myParticipant?.room_role === "admin";
@@ -1221,6 +1246,54 @@ const requestedStreamers = [
   const hostName =
   hostProfile?.username?.trim() ||
   (room.host_id ? `Host ${room.host_id.slice(0, 4)}` : "Host");
+
+  async function toggleMyLivestream() {
+    if (!myParticipant) {
+      window.alert("You need to be inside the room before going live.");
+      return;
+    }
+
+    if (myParticipant.is_muted) {
+      window.alert("You are muted by the host.");
+      return;
+    }
+
+    if (isLocalPublishing) {
+      const stopped = await stopStreamer(myParticipant);
+
+      if (stopped) {
+        setStopPublishSignal((current) => current + 1);
+        setIsLocalPublishing(false);
+      }
+
+      return;
+    }
+
+    if (myParticipant.can_stream) {
+      setPublishSignal((current) => current + 1);
+      return;
+    }
+
+    if (isHost) {
+      const approved = await approveStreamer(myParticipant);
+
+      if (approved) {
+        setPendingLocalPublish(true);
+      }
+
+      return;
+    }
+
+    await requestToStream();
+  }
+
+  const streamActionLabel = isLocalPublishing
+    ? "Stop Live"
+    : myParticipant?.can_stream || isHost
+      ? "Go Live"
+      : myParticipant?.stream_status === "requested"
+        ? "Needs Approval"
+        : "Request Live";
 
   const eventMatchAction = (
     <View style={styles.eventMatchCard}>
@@ -1346,7 +1419,7 @@ const requestedStreamers = [
         </View>
       </View>
 
-      {canManageQueue && (
+      {(canManageQueue || myParticipant) && (
       <View style={styles.mobileRoomActions}>
         <View style={styles.mobileRoomActionRight}>
           {canManageQueue && (
@@ -1355,21 +1428,15 @@ const requestedStreamers = [
               <Text style={styles.roomSettingsText}>Room Settings</Text>
             </TouchableOpacity>
           )}
-          {isHost && (
+          {myParticipant && (
             <TouchableOpacity
               style={styles.hostLiveCompactButton}
-              onPress={() => {
-                if (!hostParticipant) {
-                  window.alert("Host is not inside the room yet.");
-                  return;
-                }
-
-                hostIsLive ? stopStreamer(hostParticipant) : approveStreamer(hostParticipant);
-              }}
+              onPress={toggleMyLivestream}
+              disabled={myParticipant.stream_status === "requested" && !myParticipant.can_stream}
             >
-              <Ionicons name={hostIsLive ? "stop-circle-outline" : "radio-outline"} size={20} color="#FFFFFF" />
+              <Ionicons name={isLocalPublishing ? "stop-circle-outline" : "radio-outline"} size={20} color="#FFFFFF" />
               <Text style={styles.hostLiveCompactText}>
-                {hostIsLive ? "Stop Live" : "Go Live"}
+                {streamActionLabel}
               </Text>
             </TouchableOpacity>
           )}
@@ -1538,6 +1605,10 @@ const requestedStreamers = [
   canPublish={!!myParticipant?.can_stream}
   isFullscreen={isFullscreenLive}
   onFullscreen={() => setIsFullscreenLive(true)}
+  onExitFullscreen={() => setIsFullscreenLive(false)}
+  onPublishingChange={setIsLocalPublishing}
+  publishSignal={publishSignal}
+  stopSignal={stopPublishSignal}
 />
               ) : (
                 <ImageBackground
@@ -1573,6 +1644,10 @@ const requestedStreamers = [
                 canPublish={!!myParticipant?.can_stream}
                 isFullscreen={isFullscreenLive}
                 onFullscreen={() => setIsFullscreenLive(true)}
+                onExitFullscreen={() => setIsFullscreenLive(false)}
+                onPublishingChange={setIsLocalPublishing}
+                publishSignal={publishSignal}
+                stopSignal={stopPublishSignal}
               />
             </View>
           )}
@@ -1617,7 +1692,14 @@ const requestedStreamers = [
             {(canManageQueue || person.user_id === currentUserId) && (
   <TouchableOpacity
     style={styles.removeStreamerButton}
-    onPress={() => stopStreamer(person)}
+    onPress={async () => {
+      const stopped = await stopStreamer(person);
+
+      if (stopped && person.user_id === currentUserId) {
+        setStopPublishSignal((current) => current + 1);
+        setIsLocalPublishing(false);
+      }
+    }}
   >
     <Text style={styles.removeStreamerText}>
       {person.user_id === currentUserId ? "Stop Live" : "Remove"}
@@ -1634,15 +1716,28 @@ const requestedStreamers = [
   {isHost && (
     <TouchableOpacity
       style={styles.streamActionTile}
-      onPress={() => {
+      onPress={async () => {
         if (!hostParticipant) {
           window.alert("Host is not inside the room yet.");
           return;
         }
 
-        hostIsLive
-          ? stopStreamer(hostParticipant)
-          : approveStreamer(hostParticipant);
+        if (hostIsLive) {
+          const stopped = await stopStreamer(hostParticipant);
+
+          if (stopped && hostParticipant.user_id === currentUserId) {
+            setStopPublishSignal((current) => current + 1);
+            setIsLocalPublishing(false);
+          }
+
+          return;
+        }
+
+        const approved = await approveStreamer(hostParticipant);
+
+        if (approved && hostParticipant.user_id === currentUserId) {
+          setPublishSignal((current) => current + 1);
+        }
       }}
     >
       <Text style={styles.streamActionEmoji}>
@@ -1960,84 +2055,6 @@ const requestedStreamers = [
         </View>
       </View>
     </View>
-
-
-      {!isDesktop && room && (
-  <Modal visible={isFullscreenLive} animationType="fade">
-    <View style={styles.fullscreenLivePage}>
-      <ImageBackground
-        source={
-          room.cover_image
-            ? { uri: room.cover_image }
-            : require("../../../../assets/images/rooftop-dj-set.png")
-        }
-        style={styles.fullscreenLiveImage}
-        imageStyle={styles.fullscreenLiveImageStyle}
-      >
-        <View style={styles.fullscreenLiveOverlay} />
-
-        <View style={styles.fullscreenLiveStream}>
-  <LiveKitRoomView
-    roomId={room.id}
-    userId={currentUserId}
-    canPublish={!!myParticipant?.can_stream}
-  />
-</View>
-
-        <View style={styles.fullscreenLiveTop}>
-          <TouchableOpacity
-            style={styles.fullscreenCloseButton}
-            onPress={() => setIsFullscreenLive(false)}
-          >
-            <Text style={styles.fullscreenCloseText}>Close</Text>
-          </TouchableOpacity>
-
-          <View style={styles.liveBadgeMobile}>
-            <Text style={styles.liveBadgeText}>LIVE</Text>
-          </View>
-        </View>
-        <View style={styles.fullscreenMessagesOverlay}>
-  {messages.slice(-4).map((item) => {
-    const displayName =
-      item.display_name || `Guest ${item.user_id.slice(0, 4)}`;
-
-    return (
-      <View key={item.id} style={styles.fullscreenMessageBubble}>
-        <Text style={styles.fullscreenMessageName}>{displayName}</Text>
-        <Text style={styles.fullscreenMessageText}>{item.message}</Text>
-      </View>
-    );
-  })}
-</View>
-
-        <View style={styles.fullscreenLiveBottom}>
-          <Text style={styles.fullscreenRoomTitle}>{room.title}</Text>
-          <Text style={styles.fullscreenViewerText}>
-            {room.current_users} watching
-          </Text>
-
-          <View style={styles.chatInputContainer}>
-            <TextInput
-              value={messageText}
-              onChangeText={(text) => {
-                setMessageText(text);
-                if (text.trim()) updateTyping();
-              }}
-              placeholder="Type a message"
-              placeholderTextColor="#999"
-              style={styles.chatInput}
-            />
-
-            <TouchableOpacity style={styles.sendButton} onPress={sendMessage}>
-              <Text style={styles.actionText}>Send</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </ImageBackground>
-    </View>
-  </Modal>
-)}
-
 <Modal transparent visible={showInviteModal} animationType="fade">
   <View style={styles.inviteModalBackdrop}>
     <View style={styles.inviteModal}>
