@@ -14,11 +14,12 @@ import {
   AudioSession,
   LiveKitRoom,
   VideoTrack, 
+  useConnectionState,
   useLocalParticipant,
   useTracks,
   registerGlobals,
 } from "@livekit/react-native";
-import { Track } from "livekit-client";
+import { ConnectionState, Track } from "livekit-client";
 import { supabase } from "../../lib/supabase";
 import type { TrackReference } from "@livekit/react-native";
 
@@ -144,8 +145,8 @@ function StreamControls({
   const [micOn, setMicOn] = useState(false);
   const [cameraOn, setCameraOn] = useState(false);
   const [isFrontCamera, setIsFrontCamera] = useState(true);
-  const lastPublishSignalRef = useRef(publishSignal);
-  const lastStopSignalRef = useRef(stopSignal);
+  const lastPublishSignalRef = useRef(0);
+  const lastStopSignalRef = useRef(0);
 
 
   async function toggleMic() {
@@ -353,6 +354,8 @@ function showControls() {
 
   useEffect(() => {
     async function getToken() {
+  setToken("");
+
   const { data: profile } = await supabase
   .from("profiles")
   .select("username")
@@ -392,6 +395,7 @@ function showControls() {
 
   return (
   <LiveKitRoom
+  key={token}
   serverUrl={livekitUrl}
   token={token}
   connect={true}
@@ -407,10 +411,46 @@ function showControls() {
     console.log("LIVEKIT ROOM ERROR:", error);
   }}
 >
-    <Pressable style={styles.room} onPress={showControls}>
-  <VideoGrid />
+    <RoomStreamSurface
+      canPublish={canPublish}
+      controlsOpacity={controlsOpacity}
+      controlsVisible={controlsVisible}
+      fullscreen={fullscreen}
+      onExitFullscreen={onExitFullscreen}
+      onPublishingChange={onPublishingChange}
+      onShowControls={showControls}
+      publishSignal={publishSignal}
+      stopSignal={stopSignal}
+    />
+  </LiveKitRoom>
+);
+}
 
-  {controlsVisible && (
+function RoomStreamSurface({
+  canPublish,
+  controlsOpacity,
+  controlsVisible,
+  fullscreen,
+  onExitFullscreen,
+  onPublishingChange,
+  onShowControls,
+  publishSignal,
+  stopSignal,
+}: {
+  canPublish: boolean;
+  controlsOpacity: Animated.Value;
+  controlsVisible: boolean;
+  fullscreen: boolean;
+  onExitFullscreen?: () => void;
+  onPublishingChange?: (publishing: boolean) => void;
+  onShowControls: () => void;
+  publishSignal: number;
+  stopSignal: number;
+}) {
+  const connectionState = useConnectionState();
+  const isConnected = connectionState === ConnectionState.Connected;
+
+  const controls = isConnected && controlsVisible ? (
     <Animated.View style={{ opacity: controlsOpacity }}>
       <StreamControls
         canPublish={canPublish}
@@ -419,38 +459,34 @@ function showControls() {
         onPublishingChange={onPublishingChange}
       />
     </Animated.View>
-  )}
+  ) : null;
 
-  <Modal visible={fullscreen} animationType="fade">
-    <View style={styles.fullscreenPage}>
-      <Pressable style={styles.fullscreenRoom} onPress={showControls}>
-        <VideoGrid />
+  return (
+    <Pressable style={styles.room} onPress={onShowControls}>
+      <VideoGrid />
 
-        <View style={styles.fullscreenTop}>
-          <TouchableOpacity
-            style={styles.fullscreenCloseButton}
-            onPress={onExitFullscreen}
-          >
-            <Text style={styles.fullscreenCloseText}>Close</Text>
-          </TouchableOpacity>
+      {!fullscreen && controls}
+
+      <Modal visible={fullscreen} animationType="fade">
+        <View style={styles.fullscreenPage}>
+          <Pressable style={styles.fullscreenRoom} onPress={onShowControls}>
+            <VideoGrid />
+
+            <View style={styles.fullscreenTop}>
+              <TouchableOpacity
+                style={styles.fullscreenCloseButton}
+                onPress={onExitFullscreen}
+              >
+                <Text style={styles.fullscreenCloseText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+
+            {fullscreen && controls}
+          </Pressable>
         </View>
-
-        {controlsVisible && (
-          <Animated.View style={{ opacity: controlsOpacity }}>
-            <StreamControls
-              canPublish={canPublish}
-              publishSignal={publishSignal}
-              stopSignal={stopSignal}
-              onPublishingChange={onPublishingChange}
-            />
-          </Animated.View>
-        )}
-      </Pressable>
-    </View>
-  </Modal>
-</Pressable>
-  </LiveKitRoom>
-);
+      </Modal>
+    </Pressable>
+  );
 }
 
 const styles = StyleSheet.create({
