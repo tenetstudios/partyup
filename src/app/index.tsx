@@ -19,24 +19,19 @@ WebBrowser.maybeCompleteAuthSession();
 export default function Index() {
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-  let mounted = true;
-  let routed = false;
-
-  async function routeUser(userId: string) {
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
+  async function routeSignedInUser(userId: string) {
     const { data: profile } = await supabase
       .from("profiles")
       .select("username")
       .eq("id", userId)
       .maybeSingle();
 
-    if (!mounted || routed) return;
-
-    routed = true;
     router.replace(profile?.username ? "/home" : "/profile");
   }
+
+  useEffect(() => {
+  let mounted = true;
+  let routed = false;
 
   async function loadSavedSession() {
   const { data } = await supabase.auth.getSession();
@@ -44,7 +39,8 @@ export default function Index() {
 
   if (!mounted || !user) return;
 
-await routeUser(user.id);
+  routed = true;
+await routeSignedInUser(user.id);
 }
 
 loadSavedSession();
@@ -61,7 +57,8 @@ const {
     .eq("id", user.id)
     .maybeSingle();
 
-  await routeUser(user.id);
+  routed = true;
+  await routeSignedInUser(user.id);
 });
 
 return () => {
@@ -80,6 +77,9 @@ return () => {
 
     
  const signInWithGoogle = async () => {
+  if (loading) return;
+
+  setLoading(true);
 
 
   const redirectTo = "partyup://auth/callback";
@@ -93,11 +93,13 @@ return () => {
   });
 
   if (error) {
+    setLoading(false);
     Alert.alert("Google sign-in error", error.message);
     return;
   }
 
   if (!data?.url) {
+    setLoading(false);
     Alert.alert("Google sign-in error", "No OAuth URL returned.");
     return;
   }
@@ -107,12 +109,14 @@ return () => {
   
 
   if (result.type !== "success") {
+  setLoading(false);
   return;
 }
 
 const callbackUrl = (result as { url?: string }).url;
 
 if (!callbackUrl) {
+  setLoading(false);
   Alert.alert("Google session error", "Missing callback URL.");
   return;
 }
@@ -120,6 +124,7 @@ if (!callbackUrl) {
   const fragment = callbackUrl.split("#")[1];
 
   if (!fragment) {
+    setLoading(false);
     Alert.alert("Google session error", "Missing callback fragment.");
     return;
   }
@@ -130,6 +135,7 @@ if (!callbackUrl) {
   const refresh_token = params.get("refresh_token");
 
   if (!access_token || !refresh_token) {
+    setLoading(false);
     Alert.alert("Google session error", "Missing tokens.");
     return;
   }
@@ -143,17 +149,21 @@ const { data: setSessionData, error: sessionError } =
 
 
   if (sessionError) {
+    setLoading(false);
     Alert.alert("Google session error", sessionError.message);
     return;
   }
 
-  const { data: sessionData } = await supabase.auth.getSession();
+  const signedInUser = setSessionData.session?.user ?? setSessionData.user;
 
- 
+  if (!signedInUser) {
+    setLoading(false);
+    Alert.alert("Google session error", "Could not confirm your signed-in session.");
+    return;
+  }
 
- setTimeout(() => {
-  router.replace("/home");
-}, 300);
+  await routeSignedInUser(signedInUser.id);
+  setLoading(false);
 
 };
 
@@ -208,7 +218,9 @@ const { data: setSessionData, error: sessionError } =
             style={{ marginRight: 10 }}
           />
 
-          <Text style={styles.googleButtonText}>Continue with Google</Text>
+          <Text style={styles.googleButtonText}>
+            {loading ? "Signing in..." : "Continue with Google"}
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.button} onPress={enterGuest}>

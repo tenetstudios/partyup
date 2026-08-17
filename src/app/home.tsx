@@ -1,9 +1,9 @@
 import { Image } from "expo-image";
 import * as Location from "expo-location";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import type { AndroidSymbol, SFSymbol, SymbolViewProps } from "expo-symbols";
 import { SymbolView } from "expo-symbols";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -239,22 +239,95 @@ export default function Home() {
     ? "Good afternoon,"
     : "Good evening,";
 
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+
+      async function reloadHomeOnFocus() {
+        const { data: sessionData } = await supabase.auth.getSession();
+        let userId = sessionData.session?.user?.id;
+
+        if (!userId) {
+          const { data: userData } = await supabase.auth.getUser();
+          userId = userData.user?.id;
+        }
+
+        if (!active || !userId) {
+          return;
+        }
+
+        await fetchProfile(userId);
+
+        if (active) {
+          await fetchRooms();
+        }
+      }
+
+      void reloadHomeOnFocus();
+
+      return () => {
+        active = false;
+      };
+    }, []),
+  );
+
   useEffect(() => {
   let mounted = true;
+  let loaded = false;
+
+  async function loadHomeData(userId: string) {
+    if (!mounted || loaded) return;
+
+    loaded = true;
+    await fetchProfile(userId);
+    await fetchRooms();
+  }
+
+  async function loadCurrentSession() {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const sessionUser = sessionData.session?.user;
+
+    if (sessionUser) {
+      await loadHomeData(sessionUser.id);
+      return true;
+    }
+
+    const { data: userData } = await supabase.auth.getUser();
+    const user = userData.user;
+
+    if (user) {
+      await loadHomeData(user.id);
+      return true;
+    }
+
+    return false;
+  }
 
   async function bootHome() {
-    await supabase.auth.getSession();
+    for (let attempt = 0; attempt < 6 && mounted && !loaded; attempt += 1) {
+      const didLoad = await loadCurrentSession();
 
-    if (!mounted) return;
+      if (didLoad) {
+        return;
+      }
 
-    await fetchProfile();
-    await fetchRooms();
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
   }
 
   bootHome();
 
+  const {
+    data: { subscription },
+  } = supabase.auth.onAuthStateChange((_event, session) => {
+    if (session?.user) {
+      void loadHomeData(session.user.id);
+    }
+  });
+
   return () => {
     mounted = false;
+    subscription.unsubscribe();
   };
 }, []);
 
@@ -386,18 +459,11 @@ const stats = useMemo(() => {
   ];
 }, [rooms]);
 
-  async function fetchProfile() {
-  const { data: userData } = await supabase.auth.getUser();
-  const user = userData.user;
-
-  console.log("CURRENT AUTH USER:", user?.id, user?.email);
-
-  if (!user) return;
-
+  async function fetchProfile(userId: string) {
   const { data, error } = await supabase
     .from("profiles")
     .select("id, auth_user_id, username, avatar_url")
-    .or(`auth_user_id.eq.${user.id},id.eq.${user.id}`)
+    .or(`auth_user_id.eq.${userId},id.eq.${userId}`)
     .maybeSingle();
 
   console.log("PROFILE RESULT:", data);
