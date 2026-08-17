@@ -6,6 +6,7 @@ import {
   VideoTrack,
   registerGlobals,
   useLocalParticipant,
+  useParticipants,
   useRoomContext,
   useTracks,
 } from "@livekit/react-native";
@@ -32,6 +33,7 @@ type MatchLiveKitTokenResponse = {
 type Props = {
   nextBusy: boolean;
   onNextMatch: (sessionId: string) => Promise<void>;
+  onRemoteParticipantLeft: () => void;
   onReturnToMatch: () => void;
   sessionId: string;
 };
@@ -47,6 +49,7 @@ function isTrackReference(trackRef: unknown): trackRef is TrackReference {
 export default function MatchLiveKitRoomView({
   nextBusy,
   onNextMatch,
+  onRemoteParticipantLeft,
   onReturnToMatch,
   sessionId,
 }: Props) {
@@ -177,6 +180,7 @@ export default function MatchLiveKitRoomView({
         message={message}
         nextBusy={nextBusy}
         onNextMatch={onNextMatch}
+        onRemoteParticipantLeft={onRemoteParticipantLeft}
         onReturnToMatch={onReturnToMatch}
       />
     </LiveKitRoom>
@@ -186,6 +190,7 @@ export default function MatchLiveKitRoomView({
 function MatchCallView({
   nextBusy,
   onNextMatch,
+  onRemoteParticipantLeft,
   participantIdentity,
   roomName,
   sessionId,
@@ -196,6 +201,7 @@ function MatchCallView({
   message: string | null;
   nextBusy: boolean;
   onNextMatch: (sessionId: string) => Promise<void>;
+  onRemoteParticipantLeft: () => void;
   onReturnToMatch: () => void;
   participantIdentity: string | null;
   roomName: string | null;
@@ -203,8 +209,10 @@ function MatchCallView({
   status: MatchLiveKitStatus;
 }) {
   const { localParticipant } = useLocalParticipant();
+  const participants = useParticipants();
   const room = useRoomContext();
   const [cameraEnabled, setCameraEnabled] = useState(false);
+  const [hasSeenRemoteParticipant, setHasSeenRemoteParticipant] = useState(false);
   const [keepInTouchMessage, setKeepInTouchMessage] = useState<string | null>(null);
   const [keepInTouchStatus, setKeepInTouchStatus] = useState<
     "idle" | "saving" | "saved" | "connected"
@@ -230,6 +238,40 @@ function MatchCallView({
   const remoteTrack = cameraTracks.find(
     (trackRef) => trackRef.participant.identity !== localIdentity,
   );
+  const remoteParticipantCount = participants.filter(
+    (participant) => participant.identity !== localIdentity,
+  ).length;
+  const remotePlaceholderText =
+    remoteParticipantCount === 0 && hasSeenRemoteParticipant
+      ? "Left the call"
+      : remoteParticipantCount > 0
+        ? "Camera off"
+        : "Connecting...";
+
+  useEffect(() => {
+    if (remoteParticipantCount > 0) {
+      setHasSeenRemoteParticipant(true);
+      return;
+    }
+
+    if (status !== "connected" || !hasSeenRemoteParticipant || nextBusy) {
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      onRemoteParticipantLeft();
+    }, 1500);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [
+    hasSeenRemoteParticipant,
+    nextBusy,
+    onRemoteParticipantLeft,
+    remoteParticipantCount,
+    status,
+  ]);
 
   useEffect(() => {
     setKeepInTouchStatus("idle");
@@ -423,9 +465,7 @@ function MatchCallView({
         ) : (
           <View style={styles.placeholder}>
             <Text style={styles.placeholderTitle}>Your Match</Text>
-            <Text style={styles.placeholderText}>
-              {status === "connected" ? "Camera off" : "Connecting..."}
-            </Text>
+            <Text style={styles.placeholderText}>{remotePlaceholderText}</Text>
           </View>
         )}
 

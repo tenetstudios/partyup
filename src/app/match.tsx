@@ -28,6 +28,7 @@ export default function MatchScreen() {
   const [error, setError] = useState<string | null>(null);
   const [matchState, setMatchState] = useState<MatchState>("idle");
   const [disconnectedMessage, setDisconnectedMessage] = useState<string | null>(null);
+  const [disconnectedSessionId, setDisconnectedSessionId] = useState<string | null>(null);
   const [nextBusy, setNextBusy] = useState(false);
   const [activePool, setActivePool] = useState<MatchPool | null>(null);
   const [searchIdentityId, setSearchIdentityId] = useState<string | null>(null);
@@ -58,6 +59,7 @@ export default function MatchScreen() {
       setBusy(false);
       setNextBusy(false);
       setError(message);
+      setDisconnectedSessionId(null);
       setSearchIdentityId(null);
       setSession(null);
       setMatchState("error");
@@ -74,6 +76,7 @@ export default function MatchScreen() {
         clearSessionSubscription();
         setSession(matchedSession);
         setSearchIdentityId(null);
+        setDisconnectedSessionId(null);
         setDisconnectedMessage(null);
         setError(null);
         setMatchState("matched");
@@ -85,10 +88,11 @@ export default function MatchScreen() {
   );
 
   const transitionToDisconnected = useCallback(
-    (message: string) => {
+    (message: string, endedSessionId: string | null) => {
       clearSessionSubscription();
       setBusy(false);
       setNextBusy(false);
+      setDisconnectedSessionId(endedSessionId);
       setSession(null);
       setSearchIdentityId(null);
       setDisconnectedMessage(message);
@@ -104,6 +108,7 @@ export default function MatchScreen() {
       if (currentSession.status === "ended" && !nextBusy) {
         transitionToDisconnected(
           currentSession.ended_reason === "next" ? "They moved on." : "Connection ended.",
+          sessionId,
         );
       }
     },
@@ -196,6 +201,7 @@ export default function MatchScreen() {
         clearSessionSubscription();
         setBusy(false);
         setNextBusy(false);
+        setDisconnectedSessionId(null);
         setSearchIdentityId(null);
         setSession(null);
         setMatchState("idle");
@@ -250,6 +256,7 @@ export default function MatchScreen() {
           if (row.status === "ended" && !nextBusy) {
             transitionToDisconnected(
               row.ended_reason === "next" ? "They moved on." : "Connection ended.",
+              sessionId,
             );
           }
         },
@@ -291,6 +298,7 @@ export default function MatchScreen() {
     setBusy(true);
     setError(null);
     setDisconnectedMessage(null);
+    setDisconnectedSessionId(null);
     setSession(null);
     setSearchIdentityId(null);
     setNextBusy(false);
@@ -350,6 +358,7 @@ export default function MatchScreen() {
       clearSubscription();
       clearSessionSubscription();
       setSession(null);
+      setDisconnectedSessionId(null);
       setSearchIdentityId(null);
       setNextBusy(false);
       setMatchState("idle");
@@ -374,6 +383,7 @@ export default function MatchScreen() {
     setNextBusy(true);
     setError(null);
     setDisconnectedMessage(null);
+    setDisconnectedSessionId(null);
 
     try {
       const result = await nextMatch(sessionId);
@@ -399,6 +409,15 @@ export default function MatchScreen() {
     } finally {
       setNextBusy(false);
     }
+  }
+
+  async function findSomeoneElse() {
+    if (disconnectedSessionId) {
+      await handleNextMatch(disconnectedSessionId);
+      return;
+    }
+
+    await startMatching();
   }
 
   if (authLoading) {
@@ -432,11 +451,15 @@ export default function MatchScreen() {
       <MatchLiveKitRoomView
         nextBusy={nextBusy}
         onNextMatch={handleNextMatch}
+        onRemoteParticipantLeft={() => {
+          transitionToDisconnected("Your Match left.", session.id);
+        }}
         sessionId={session.id}
         onReturnToMatch={() => {
           clearSessionSubscription();
           setSession(null);
           setSearchIdentityId(null);
+          setDisconnectedSessionId(null);
           setNextBusy(false);
           setMatchState("idle");
         }}
@@ -503,12 +526,12 @@ export default function MatchScreen() {
           <Text style={styles.subtitle}>{disconnectedMessage ?? "Connection ended."}</Text>
 
           <TouchableOpacity
-            style={[styles.primaryButton, busy && styles.disabledButton]}
-            onPress={startMatching}
-            disabled={busy}
+            style={[styles.primaryButton, (busy || nextBusy) && styles.disabledButton]}
+            onPress={findSomeoneElse}
+            disabled={busy || nextBusy}
           >
             <Text style={styles.primaryButtonText}>
-              {busy ? "Finding..." : "Find Someone Else"}
+              {busy || nextBusy ? "Finding..." : "Find Someone Else"}
             </Text>
           </TouchableOpacity>
 
