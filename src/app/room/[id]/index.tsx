@@ -167,10 +167,6 @@ function isLivestream(room: Room | null): boolean {
   return room.mode === "livestream" || room.mode === "hybrid";
 }
 
-function formatRoomType(type?: RoomType) {
-  return type ? type.replace("_", " ") : null;
-}
-
 function LivestreamPanel({
   room,
   isDesktop,
@@ -1324,30 +1320,6 @@ const requestedStreamers = [
     </View>
   );
 
-  const roomMetaChips = (
-    <View style={styles.compactChipRow}>
-      {room.type && (
-        <View style={styles.compactChip}>
-          <Text style={styles.compactChipText}>{formatRoomType(room.type)}</Text>
-        </View>
-      )}
-      {room.mode && (
-        <View style={styles.compactChip}>
-          <Text style={styles.compactChipText}>{room.mode.toUpperCase()}</Text>
-        </View>
-      )}
-      {room.status && (
-        <View style={styles.compactChipLive}>
-          <Text style={styles.compactChipText}>{room.status}</Text>
-        </View>
-      )}
-      <View style={styles.verifiedCompactChip}>
-        <Ionicons name="checkmark-circle-outline" size={17} color="#B15CFF" />
-        <Text style={styles.verifiedCompactText}>Verified</Text>
-      </View>
-    </View>
-  );
-
   const roomTabs = (
     <View style={styles.roomTabsRow}>
       {[
@@ -1387,65 +1359,6 @@ const requestedStreamers = [
 
   const mobileRoomOverview = (
     <View style={styles.mobileRoomOverview}>
-      <View style={styles.mobileHeaderRow}>
-        <TouchableOpacity style={styles.headerCircleButton} onPress={leaveRoom}>
-          <Ionicons name="chevron-back" size={30} color="#FFFFFF" />
-        </TouchableOpacity>
-
-        <View style={styles.mobileIdentityBlock}>
-          <View style={styles.mobileTitleRow}>
-            <Text style={styles.mobileRoomTitle} numberOfLines={1}>
-              {room.title}
-            </Text>
-            <View style={styles.mobileVerifiedDot}>
-              <Ionicons name="checkmark" size={14} color="#FFFFFF" />
-            </View>
-          </View>
-          <View style={styles.onlineRow}>
-            <View style={styles.onlineDot} />
-            <Text style={styles.onlineText}>{presenceUsers.length} online now</Text>
-          </View>
-        </View>
-
-        <View style={styles.headerActionRow}>
-          <TouchableOpacity style={styles.headerCircleButton} onPress={shareRoom}>
-            <Ionicons name="share-outline" size={25} color="#FFFFFF" />
-          </TouchableOpacity>
-          {canManageQueue && (
-            <TouchableOpacity style={styles.headerCircleButton} onPress={openManageRoom}>
-              <Ionicons name="ellipsis-horizontal" size={25} color="#FFFFFF" />
-            </TouchableOpacity>
-          )}
-        </View>
-      </View>
-
-      {(canManageQueue || myParticipant) && (
-      <View style={styles.mobileRoomActions}>
-        <View style={styles.mobileRoomActionRight}>
-          {canManageQueue && (
-            <TouchableOpacity style={styles.roomSettingsButton} onPress={openManageRoom}>
-              <Ionicons name="settings-outline" size={24} color="#D9D5E8" />
-              <Text style={styles.roomSettingsText}>Room Settings</Text>
-            </TouchableOpacity>
-          )}
-          {myParticipant && (
-            <TouchableOpacity
-              style={styles.hostLiveCompactButton}
-              onPress={toggleMyLivestream}
-              disabled={myParticipant.stream_status === "requested" && !myParticipant.can_stream}
-            >
-              <Ionicons name={isLocalPublishing ? "stop-circle-outline" : "radio-outline"} size={20} color="#FFFFFF" />
-              <Text style={styles.hostLiveCompactText}>
-                {streamActionLabel}
-              </Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      </View>
-      )}
-
-      {roomMetaChips}
-      <Text style={styles.mobileRoomDescription}>Good vibes only. Pull up and meet new people.</Text>
       {eventMatchAction}
       {roomTabs}
     </View>
@@ -1578,8 +1491,6 @@ const requestedStreamers = [
         )}
 
         <View style={styles.mainContent}>
-          {!isDesktop && mobileRoomOverview}
-
           {isDesktop && (
           <View style={styles.heroCard}>
             {!isDesktop && (
@@ -1649,8 +1560,49 @@ const requestedStreamers = [
                 publishSignal={publishSignal}
                 stopSignal={stopPublishSignal}
               />
+              <View style={styles.feedChromeOverlay}>
+                <TouchableOpacity style={styles.feedCircleButton} onPress={leaveRoom}>
+                  <Ionicons name="chevron-back" size={26} color="#FFFFFF" />
+                </TouchableOpacity>
+
+                <View style={styles.feedIdentityBlock}>
+                  <View style={styles.feedTitleRow}>
+                    <Text style={styles.feedRoomTitle} numberOfLines={1}>
+                      {room.title}
+                    </Text>
+                    <View style={styles.feedVerifiedDot}>
+                      <Ionicons name="checkmark" size={13} color="#FFFFFF" />
+                    </View>
+                  </View>
+                  <View style={styles.feedOnlineRow}>
+                    <View style={styles.onlineDot} />
+                    <Text style={styles.feedOnlineText}>{presenceUsers.length} online now</Text>
+                  </View>
+                </View>
+
+                <TouchableOpacity style={styles.feedCircleButton} onPress={shareRoom}>
+                  <Ionicons name="share-outline" size={22} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+
+              {myParticipant && (
+                <TouchableOpacity
+                  style={styles.feedLiveButton}
+                  onPress={toggleMyLivestream}
+                  disabled={myParticipant.stream_status === "requested" && !myParticipant.can_stream}
+                >
+                  <Ionicons
+                    name={isLocalPublishing ? "stop-circle-outline" : "radio-outline"}
+                    size={18}
+                    color="#FFFFFF"
+                  />
+                  <Text style={styles.feedLiveButtonText}>{streamActionLabel}</Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
+
+          {!isDesktop && mobileRoomOverview}
 
           {isDesktop && eventMatchAction}
 
@@ -1766,8 +1718,6 @@ const requestedStreamers = [
                   {room.mode && <View style={styles.heroTag}><Text style={styles.heroTagText}>{room.mode.toUpperCase()}</Text></View>}
                   {room.status && <View style={styles.heroTagLive}><Text style={styles.heroTagText}>{room.status}</Text></View>}
                 </View>
-                <Text style={styles.heroSubtitle}>Good vibes only. Pull up and meet new people.</Text>
-
                 {eventMatchAction}
 
                 <View style={styles.roomTabsRow}>
@@ -2051,6 +2001,16 @@ const requestedStreamers = [
     </Text>
   </TouchableOpacity>
 )}
+
+{canManageQueue && !isDesktop && (
+  <TouchableOpacity
+    style={styles.bottomRoomSettingsButton}
+    onPress={openManageRoom}
+  >
+    <Ionicons name="settings-outline" size={20} color="#D9D5E8" />
+    <Text style={styles.roomSettingsText}>Room Settings</Text>
+  </TouchableOpacity>
+)}
                    </View>
         </View>
       </View>
@@ -2098,8 +2058,8 @@ const styles = StyleSheet.create({
   container: {
     minHeight: "100%",
     backgroundColor: "#050509",
-    padding: 20,
-    paddingTop: 32,
+    padding: 16,
+    paddingTop: 18,
   },
   loading: {
     color: "white",
@@ -2367,53 +2327,8 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   mobileRoomOverview: {
-    gap: 20,
-    marginBottom: 20,
-  },
-  mobileHeaderRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 14,
-  },
-  headerCircleButton: {
-    alignItems: "center",
-    backgroundColor: "rgba(28, 26, 42, 0.9)",
-    borderColor: "rgba(255,255,255,0.08)",
-    borderRadius: 28,
-    borderWidth: 1,
-    height: 56,
-    justifyContent: "center",
-    width: 56,
-  },
-  mobileIdentityBlock: {
-    flex: 1,
-    minWidth: 0,
-  },
-  mobileTitleRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 8,
-  },
-  mobileRoomTitle: {
-    color: "white",
-    flexShrink: 1,
-    fontSize: 32,
-    fontWeight: "900",
-    lineHeight: 38,
-  },
-  mobileVerifiedDot: {
-    alignItems: "center",
-    backgroundColor: "#8B3DFF",
-    borderRadius: 14,
-    height: 28,
-    justifyContent: "center",
-    width: 28,
-  },
-  onlineRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 7,
-    marginTop: 2,
+    gap: 16,
+    marginBottom: 14,
   },
   onlineDot: {
     backgroundColor: "#22C55E",
@@ -2421,36 +2336,17 @@ const styles = StyleSheet.create({
     height: 10,
     width: 10,
   },
-  onlineText: {
-    color: "#C4B5FD",
-    fontSize: 20,
-    fontWeight: "700",
-  },
-  headerActionRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  mobileRoomActions: {
+  bottomRoomSettingsButton: {
     alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  mobileRoomActionRight: {
-    alignItems: "flex-end",
-    flex: 1,
-    gap: 10,
-  },
-  roomSettingsButton: {
-    alignItems: "center",
-    alignSelf: "flex-end",
+    alignSelf: "center",
     backgroundColor: "rgba(28, 26, 42, 0.94)",
     borderColor: "rgba(255,255,255,0.1)",
     borderRadius: 999,
     borderWidth: 1,
     flexDirection: "row",
     gap: 10,
-    minHeight: 52,
+    marginTop: 20,
+    minHeight: 48,
     paddingHorizontal: 18,
   },
   roomSettingsText: {
@@ -2458,71 +2354,88 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "900",
   },
-  hostLiveCompactButton: {
-    alignItems: "center",
-    alignSelf: "flex-end",
-    backgroundColor: "rgba(124,58,237,0.72)",
-    borderRadius: 999,
-    flexDirection: "row",
-    gap: 8,
-    minHeight: 42,
-    paddingHorizontal: 14,
-  },
-  hostLiveCompactText: {
-    color: "white",
-    fontSize: 13,
-    fontWeight: "900",
-  },
-  compactChipRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  compactChip: {
-    backgroundColor: "rgba(88,28,135,0.56)",
-    borderRadius: 999,
-    paddingHorizontal: 15,
-    paddingVertical: 10,
-  },
-  compactChipLive: {
-    backgroundColor: "rgba(157,23,77,0.5)",
-    borderRadius: 999,
-    paddingHorizontal: 15,
-    paddingVertical: 10,
-  },
-  compactChipText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "900",
-  },
-  verifiedCompactChip: {
-    alignItems: "center",
-    backgroundColor: "rgba(10,9,21,0.55)",
-    borderColor: "rgba(255,255,255,0.18)",
-    borderRadius: 999,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 8,
-    paddingHorizontal: 15,
-    paddingVertical: 10,
-  },
-  verifiedCompactText: {
-    color: "#E9D5FF",
-    fontSize: 14,
-    fontWeight: "900",
-  },
-  mobileRoomDescription: {
-    color: "#CFC3FF",
-    fontSize: 18,
-    lineHeight: 26,
-  },
   mobileLiveDock: {
     borderColor: "rgba(124,58,237,0.22)",
     borderRadius: 24,
     borderWidth: 1,
-    height: 180,
-    marginBottom: 22,
+    height: 350,
+    marginBottom: 18,
     overflow: "hidden",
+    position: "relative",
+  },
+  feedChromeOverlay: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+    left: 12,
+    position: "absolute",
+    right: 12,
+    top: 12,
+    zIndex: 80,
+    elevation: 80,
+  },
+  feedCircleButton: {
+    alignItems: "center",
+    backgroundColor: "rgba(12, 10, 22, 0.72)",
+    borderColor: "rgba(255,255,255,0.1)",
+    borderRadius: 24,
+    borderWidth: 1,
+    height: 48,
+    justifyContent: "center",
+    width: 48,
+  },
+  feedIdentityBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  feedTitleRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 7,
+  },
+  feedRoomTitle: {
+    color: "white",
+    flexShrink: 1,
+    fontSize: 24,
+    fontWeight: "900",
+    lineHeight: 29,
+  },
+  feedVerifiedDot: {
+    alignItems: "center",
+    backgroundColor: "#8B3DFF",
+    borderRadius: 12,
+    height: 24,
+    justifyContent: "center",
+    width: 24,
+  },
+  feedOnlineRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 6,
+  },
+  feedOnlineText: {
+    color: "#C4B5FD",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  feedLiveButton: {
+    alignItems: "center",
+    backgroundColor: "rgba(124,58,237,0.88)",
+    borderRadius: 999,
+    bottom: 14,
+    flexDirection: "row",
+    gap: 8,
+    minHeight: 44,
+    paddingHorizontal: 16,
+    position: "absolute",
+    right: 14,
+    zIndex: 80,
+    elevation: 80,
+  },
+  feedLiveButtonText: {
+    color: "white",
+    fontSize: 13,
+    fontWeight: "900",
   },
   mobileStatPillRow: {
     flexDirection: "row",
@@ -2566,7 +2479,7 @@ const styles = StyleSheet.create({
   },
   chatPaneMobile: {
     padding: 0,
-    minHeight: 420,
+    minHeight: 260,
   },
   messageCardMobile: {
     padding: 0,
@@ -2666,11 +2579,11 @@ const styles = StyleSheet.create({
   },
   eventMatchCard: {
     backgroundColor: "rgba(10, 9, 21, 0.94)",
-    borderRadius: 24,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: "rgba(236,72,153,0.55)",
-    padding: 20,
-    gap: 18,
+    padding: 16,
+    gap: 14,
     shadowColor: "#EC4899",
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.18,
@@ -2679,17 +2592,17 @@ const styles = StyleSheet.create({
   eventMatchIntroRow: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 18,
+    gap: 14,
   },
   eventMatchIcon: {
     alignItems: "center",
     backgroundColor: "rgba(12, 8, 24, 0.92)",
     borderColor: "rgba(168,85,247,0.38)",
-    borderRadius: 36,
+    borderRadius: 30,
     borderWidth: 1,
-    height: 72,
+    height: 60,
     justifyContent: "center",
-    width: 72,
+    width: 60,
   },
   eventMatchTextBlock: {
     flex: 1,
@@ -2698,14 +2611,14 @@ const styles = StyleSheet.create({
   },
   eventMatchTitle: {
     color: "white",
-    fontSize: 23,
+    fontSize: 20,
     fontWeight: "900",
-    lineHeight: 28,
+    lineHeight: 24,
   },
   eventMatchSubtitle: {
     color: "#C2B7ED",
-    fontSize: 16,
-    lineHeight: 22,
+    fontSize: 14,
+    lineHeight: 19,
   },
   eventMatchButton: {
     alignItems: "center",
@@ -2714,12 +2627,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
     justifyContent: "center",
-    minHeight: 58,
+    minHeight: 50,
     paddingHorizontal: 18,
   },
   eventMatchButtonText: {
     color: "white",
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: "900",
     textAlign: "center",
   },
@@ -2947,8 +2860,8 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     gap: 12,
-    marginBottom: 18,
-    padding: 18,
+    marginBottom: 12,
+    padding: 14,
   },
   chatMetaPill: {
     backgroundColor: "rgba(88,28,135,0.55)",
@@ -2962,8 +2875,8 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   chatList: {
-    maxHeight: 430,
-    marginBottom: 16,
+    maxHeight: 150,
+    marginBottom: 10,
   },
   chatListContent: {
     paddingBottom: 10,
@@ -2972,7 +2885,7 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
     borderRadius: 0,
     padding: 0,
-    marginBottom: 20,
+    marginBottom: 14,
     borderWidth: 0,
   },
   messageHeader: {
@@ -3021,8 +2934,8 @@ const styles = StyleSheet.create({
   },
   messageText: {
     color: "#D9D5E8",
-    fontSize: 17,
-    lineHeight: 25,
+    fontSize: 15,
+    lineHeight: 21,
     marginLeft: 56,
   },
   typingPill: {
@@ -3046,7 +2959,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.08)",
     borderRadius: 36,
     borderWidth: 1,
-    padding: 10,
+    padding: 8,
   },
   chatInput: {
     flex: 1,
@@ -3054,8 +2967,8 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.04)",
     borderRadius: 26,
     paddingHorizontal: 18,
-    paddingVertical: 14,
-    fontSize: 17,
+    paddingVertical: 12,
+    fontSize: 15,
   },
   fullscreenButton: {
   position: "absolute",
