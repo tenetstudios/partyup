@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   Animated,
   Pressable,
+  Alert,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -127,7 +128,6 @@ function StreamControls({ canPublish }: { canPublish: boolean }) {
   const [cameraOn, setCameraOn] = useState(false);
   const [isFrontCamera, setIsFrontCamera] = useState(true);
 
-  if (!canPublish) return null;
 
   async function toggleMic() {
     const next = !micOn;
@@ -136,16 +136,25 @@ function StreamControls({ canPublish }: { canPublish: boolean }) {
     await localParticipant.setMicrophoneEnabled(next);
   }
 
-  async function toggleCamera() {
-    const next = !cameraOn;
-
-    try {
-      await localParticipant.setCameraEnabled(next);
-      setCameraOn(next);
-    } catch (e) {
-      console.log("CAMERA ERROR:", e);
-    }
+ async function toggleCamera() {
+  if (!canPublish) {
+    Alert.alert(
+      "Cannot Go Live",
+      "The host has not approved you to stream yet."
+    );
+    return;
   }
+
+  const next = !cameraOn;
+
+  try {
+    await localParticipant.setCameraEnabled(next);
+    setCameraOn(next);
+  } catch (e) {
+    console.log("CAMERA ERROR:", e);
+    Alert.alert("Camera Error", "Could not start your camera.");
+  }
+}
 
  async function toggleCameraFacing() {
   try {
@@ -197,8 +206,12 @@ function StreamControls({ canPublish }: { canPublish: boolean }) {
         onPress={toggleCamera}
       >
         <Text style={styles.controlText}>
-          {cameraOn ? "Camera Off" : "Camera On"}
-        </Text>
+  {!canPublish
+    ? "Needs Approval"
+    : cameraOn
+    ? "Camera Off"
+    : "Camera On"}
+</Text>
       </TouchableOpacity>
 
       <TouchableOpacity
@@ -256,10 +269,10 @@ function showControls() {
   useEffect(() => {
     async function getToken() {
   const { data: profile } = await supabase
-    .from("profiles")
-    .select("username")
-    .eq("id", userId)
-    .maybeSingle();
+  .from("profiles")
+  .select("username")
+  .or(`auth_user_id.eq.${userId},id.eq.${userId}`)
+  .maybeSingle();
 
   const displayName =
     profile?.username || `Guest ${userId.slice(0, 4)}`;
@@ -294,12 +307,21 @@ function showControls() {
 
   return (
   <LiveKitRoom
-    serverUrl={livekitUrl}
-    token={token}
-    connect={true}
-    audio={false}
-    video={false}
-  >
+  serverUrl={livekitUrl}
+  token={token}
+  connect={true}
+  audio={false}
+  video={false}
+  onConnected={() => {
+    console.log("LIVEKIT CONNECTED");
+  }}
+  onDisconnected={() => {
+    console.log("LIVEKIT DISCONNECTED");
+  }}
+  onError={(error) => {
+    console.log("LIVEKIT ROOM ERROR:", error);
+  }}
+>
     <Pressable style={styles.room} onPress={showControls}>
   <VideoGrid />
 

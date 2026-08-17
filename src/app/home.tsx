@@ -753,9 +753,11 @@ async function syncRoomCounts(roomId: string) {
                   {item.current_users} / {item.max_users}
                 </Text>
               </View>
-              {item.distance_km && (
-                <Text style={styles.distanceText}>{item.distance_km.toFixed(1)} km away</Text>
-              )}
+              {item.distance_km != null && item.distance_km > 0 && (
+  <Text style={styles.distanceText}>
+    {item.distance_km.toFixed(1)} km away
+  </Text>
+)}
             </View>
           </View>
 
@@ -948,6 +950,22 @@ async function syncRoomCounts(roomId: string) {
             <Icon name="sparkles" size={18} color="#FFFFFF" />
             <Text style={styles.surpriseText}>Surprise Me</Text>
             <Icon name="chevronRight" size={15} color="#C4B5FD" />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.matchTestCard}>
+          <View style={styles.quickIcon}>
+            <Icon name="sparkles" size={24} color="#FDB4D4" />
+          </View>
+
+          <View style={styles.quickTextBlock}>
+            <Text style={styles.quickTitle}>Match</Text>
+            <Text style={styles.quickSubtitle}>Test global 1-on-1 matching</Text>
+          </View>
+
+          <TouchableOpacity style={styles.matchTestButton} onPress={() => router.push("/match" as never)}>
+            <Text style={styles.surpriseText}>Open</Text>
+            <Icon name="chevronRight" size={15} color="#FDB4D4" />
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -1669,6 +1687,17 @@ const styles = StyleSheet.create({
     marginTop: 16,
     padding: 14,
   },
+  matchTestCard: {
+    alignItems: "center",
+    backgroundColor: "#21101F",
+    borderColor: "#5B2242",
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 14,
+    marginTop: 12,
+    padding: 14,
+  },
   quickIcon: {
     alignItems: "center",
     backgroundColor: "#2d1050",
@@ -1695,6 +1724,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#7C3AED",
     borderColor: "#8B5CF6",
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    minHeight: 44,
+    paddingHorizontal: 16,
+  },
+  matchTestButton: {
+    alignItems: "center",
+    backgroundColor: "#EC4899",
+    borderColor: "#F472B6",
     borderRadius: 999,
     borderWidth: 1,
     flexDirection: "row",

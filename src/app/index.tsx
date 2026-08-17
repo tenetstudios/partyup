@@ -44,7 +44,6 @@ export default function Index() {
 
   if (!mounted || !user) return;
 
-  await ensureProfile(user);
 await routeUser(user.id);
 }
 
