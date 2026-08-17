@@ -158,6 +158,18 @@ export async function enqueueAndMatch(poolId: string): Promise<EnqueueMatchResul
   return normalizeEnqueueResult(data);
 }
 
+export async function nextMatch(sessionId: string): Promise<EnqueueMatchResult> {
+  const { data, error } = await supabase.rpc("next_match", {
+    p_match_session_id: sessionId,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return normalizeEnqueueResult(data);
+}
+
 export async function getCurrentMatchQueueState(
   identityId: string,
 ): Promise<MatchQueueState | null> {

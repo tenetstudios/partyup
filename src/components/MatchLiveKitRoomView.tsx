@@ -29,6 +29,8 @@ type MatchLiveKitTokenResponse = {
 };
 
 type Props = {
+  nextBusy: boolean;
+  onNextMatch: (sessionId: string) => Promise<void>;
   onReturnToMatch: () => void;
   sessionId: string;
 };
@@ -41,7 +43,12 @@ function isTrackReference(trackRef: unknown): trackRef is TrackReference {
   return Boolean(candidate?.publication?.track);
 }
 
-export default function MatchLiveKitRoomView({ onReturnToMatch, sessionId }: Props) {
+export default function MatchLiveKitRoomView({
+  nextBusy,
+  onNextMatch,
+  onReturnToMatch,
+  sessionId,
+}: Props) {
   const [message, setMessage] = useState<string | null>(null);
   const [participantIdentity, setParticipantIdentity] = useState<string | null>(null);
   const [roomName, setRoomName] = useState<string | null>(null);
@@ -167,6 +174,8 @@ export default function MatchLiveKitRoomView({ onReturnToMatch, sessionId }: Pro
         sessionId={sessionId}
         status={status}
         message={message}
+        nextBusy={nextBusy}
+        onNextMatch={onNextMatch}
         onReturnToMatch={onReturnToMatch}
       />
     </LiveKitRoom>
@@ -174,6 +183,8 @@ export default function MatchLiveKitRoomView({ onReturnToMatch, sessionId }: Pro
 }
 
 function MatchCallView({
+  nextBusy,
+  onNextMatch,
   participantIdentity,
   roomName,
   sessionId,
@@ -182,6 +193,8 @@ function MatchCallView({
   onReturnToMatch,
 }: {
   message: string | null;
+  nextBusy: boolean;
+  onNextMatch: (sessionId: string) => Promise<void>;
   onReturnToMatch: () => void;
   participantIdentity: string | null;
   roomName: string | null;
@@ -283,6 +296,18 @@ function MatchCallView({
     }
   }
 
+  async function moveNext() {
+    if (nextBusy) {
+      return;
+    }
+
+    try {
+      await onNextMatch(sessionId);
+    } finally {
+      room.disconnect();
+    }
+  }
+
   function leaveMatch() {
     room.disconnect();
     onReturnToMatch();
@@ -338,6 +363,14 @@ function MatchCallView({
       )}
 
       <View style={styles.controls}>
+        <TouchableOpacity
+          style={[styles.nextButton, nextBusy && styles.disabledButton]}
+          onPress={moveNext}
+          disabled={nextBusy}
+        >
+          <Text style={styles.controlText}>{nextBusy ? "Finding..." : "Next"}</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity
           style={[styles.controlButton, !microphoneEnabled && styles.controlButtonOff]}
           onPress={toggleMicrophone}
@@ -395,6 +428,9 @@ const styles = StyleSheet.create({
     right: 16,
     zIndex: 40,
   },
+  disabledButton: {
+    opacity: 0.55,
+  },
   leaveButton: {
     alignItems: "center",
     backgroundColor: "#3F1D2F",
@@ -430,6 +466,14 @@ const styles = StyleSheet.create({
   localVideo: {
     height: "100%",
     width: "100%",
+  },
+  nextButton: {
+    alignItems: "center",
+    backgroundColor: "#7C3AED",
+    borderRadius: 999,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 48,
   },
   messagePage: {
     alignItems: "center",

@@ -11,10 +11,12 @@ import {
   getCurrentMatchQueueState,
   getGlobalMatchPool,
   getMatchSession,
+  nextMatch,
+  type MatchPool,
   type MatchSession,
 } from "../lib/matchmaking";
 
-type MatchState = "idle" | "searching" | "matched" | "error";
+type MatchState = "idle" | "searching" | "matched" | "disconnected" | "error";
 
 function isAnonymousUser(user: User | null) {
   return Boolean((user as { is_anonymous?: boolean } | null)?.is_anonymous);
@@ -25,10 +27,14 @@ export default function MatchScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [matchState, setMatchState] = useState<MatchState>("idle");
+  const [disconnectedMessage, setDisconnectedMessage] = useState<string | null>(null);
+  const [nextBusy, setNextBusy] = useState(false);
+  const [activePool, setActivePool] = useState<MatchPool | null>(null);
   const [searchIdentityId, setSearchIdentityId] = useState<string | null>(null);
   const [session, setSession] = useState<MatchSession | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
+  const sessionChannelRef = useRef<RealtimeChannel | null>(null);
 
   const hasAccount = Boolean(user && !isAnonymousUser(user));
 
@@ -39,10 +45,18 @@ export default function MatchScreen() {
     }
   }, []);
 
+  const clearSessionSubscription = useCallback(() => {
+    if (sessionChannelRef.current) {
+      supabase.removeChannel(sessionChannelRef.current);
+      sessionChannelRef.current = null;
+    }
+  }, []);
+
   const fail = useCallback(
     (message: string) => {
       clearSubscription();
       setBusy(false);
+      setNextBusy(false);
       setError(message);
       setSearchIdentityId(null);
       setSession(null);
@@ -57,15 +71,43 @@ export default function MatchScreen() {
         const matchedSession = await getMatchSession(sessionId);
 
         clearSubscription();
+        clearSessionSubscription();
         setSession(matchedSession);
         setSearchIdentityId(null);
+        setDisconnectedMessage(null);
         setError(null);
         setMatchState("matched");
       } catch (reason) {
         fail(reason instanceof Error ? reason.message : "The matched session could not be loaded.");
       }
     },
-    [clearSubscription, fail],
+    [clearSessionSubscription, clearSubscription, fail],
+  );
+
+  const transitionToDisconnected = useCallback(
+    (message: string) => {
+      clearSessionSubscription();
+      setBusy(false);
+      setNextBusy(false);
+      setSession(null);
+      setSearchIdentityId(null);
+      setDisconnectedMessage(message);
+      setMatchState("disconnected");
+    },
+    [clearSessionSubscription],
+  );
+
+  const checkCurrentSessionEnded = useCallback(
+    async (sessionId: string) => {
+      const currentSession = await getMatchSession(sessionId);
+
+      if (currentSession.status === "ended" && !nextBusy) {
+        transitionToDisconnected(
+          currentSession.ended_reason === "next" ? "They moved on." : "Connection ended.",
+        );
+      }
+    },
+    [nextBusy, transitionToDisconnected],
   );
 
   const checkCurrentQueueForMatch = useCallback(
@@ -151,7 +193,9 @@ export default function MatchScreen() {
 
       if (!nextUser) {
         clearSubscription();
+        clearSessionSubscription();
         setBusy(false);
+        setNextBusy(false);
         setSearchIdentityId(null);
         setSession(null);
         setMatchState("idle");
@@ -162,8 +206,9 @@ export default function MatchScreen() {
       mounted = false;
       data.subscription.unsubscribe();
       clearSubscription();
+      clearSessionSubscription();
     };
-  }, [clearSubscription]);
+  }, [clearSessionSubscription, clearSubscription]);
 
   useEffect(() => {
     if (matchState !== "searching" || !searchIdentityId) {
@@ -181,6 +226,63 @@ export default function MatchScreen() {
     };
   }, [checkCurrentQueueForMatch, fail, matchState, searchIdentityId]);
 
+  useEffect(() => {
+    if (matchState !== "matched" || !session?.id) {
+      return;
+    }
+
+    const sessionId = session.id;
+    clearSessionSubscription();
+
+    const channel = supabase
+      .channel(`mobile-match-session:${sessionId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "match_sessions",
+          filter: `id=eq.${sessionId}`,
+        },
+        (payload) => {
+          const row = payload.new as { status?: string; ended_reason?: string | null };
+
+          if (row.status === "ended" && !nextBusy) {
+            transitionToDisconnected(
+              row.ended_reason === "next" ? "They moved on." : "Connection ended.",
+            );
+          }
+        },
+      )
+      .subscribe();
+
+    sessionChannelRef.current = channel;
+
+    const intervalId = setInterval(() => {
+      void checkCurrentSessionEnded(sessionId).catch(() => {
+        // Realtime is primary; polling is only a fallback for missed session updates.
+      });
+    }, 2000);
+
+    return () => {
+      clearInterval(intervalId);
+
+      if (sessionChannelRef.current === channel) {
+        supabase.removeChannel(channel);
+        sessionChannelRef.current = null;
+      } else {
+        supabase.removeChannel(channel);
+      }
+    };
+  }, [
+    checkCurrentSessionEnded,
+    clearSessionSubscription,
+    matchState,
+    nextBusy,
+    session?.id,
+    transitionToDisconnected,
+  ]);
+
   async function startMatching() {
     if (busy) {
       return;
@@ -188,9 +290,12 @@ export default function MatchScreen() {
 
     setBusy(true);
     setError(null);
+    setDisconnectedMessage(null);
     setSession(null);
     setSearchIdentityId(null);
+    setNextBusy(false);
     clearSubscription();
+    clearSessionSubscription();
 
     try {
       const { data } = await supabase.auth.getUser();
@@ -208,8 +313,9 @@ export default function MatchScreen() {
       }
 
       const identity = await ensurePartyUpIdentity();
-      const pool = await getGlobalMatchPool();
+      const pool = activePool ?? (await getGlobalMatchPool());
       const result = await enqueueAndMatch(pool.id);
+      setActivePool(pool);
 
       if (result.matched) {
         if (!result.session_id) {
@@ -242,8 +348,10 @@ export default function MatchScreen() {
     try {
       await cancelMatchSearch();
       clearSubscription();
+      clearSessionSubscription();
       setSession(null);
       setSearchIdentityId(null);
+      setNextBusy(false);
       setMatchState("idle");
     } catch (reason) {
       fail(reason instanceof Error ? reason.message : "The match search could not be cancelled.");
@@ -254,7 +362,43 @@ export default function MatchScreen() {
 
   function returnHome() {
     clearSubscription();
+    clearSessionSubscription();
     router.push("/home");
+  }
+
+  async function handleNextMatch(sessionId: string) {
+    if (nextBusy) {
+      return;
+    }
+
+    setNextBusy(true);
+    setError(null);
+    setDisconnectedMessage(null);
+
+    try {
+      const result = await nextMatch(sessionId);
+      clearSessionSubscription();
+      setSession(null);
+
+      if (result.matched) {
+        if (!result.session_id) {
+          throw new Error("Matchmaking returned a match without a session.");
+        }
+
+        await transitionToMatched(result.session_id);
+        return;
+      }
+
+      const identity = await ensurePartyUpIdentity();
+      setMatchState("searching");
+      setSearchIdentityId(identity.id);
+      await subscribeToQueue(identity.id);
+      await checkCurrentQueueForMatch(identity.id);
+    } catch (reason) {
+      fail(reason instanceof Error ? reason.message : "Could not move to the next Match.");
+    } finally {
+      setNextBusy(false);
+    }
   }
 
   if (authLoading) {
@@ -286,10 +430,14 @@ export default function MatchScreen() {
   if (matchState === "matched" && session?.id) {
     return (
       <MatchLiveKitRoomView
+        nextBusy={nextBusy}
+        onNextMatch={handleNextMatch}
         sessionId={session.id}
         onReturnToMatch={() => {
+          clearSessionSubscription();
           setSession(null);
           setSearchIdentityId(null);
+          setNextBusy(false);
           setMatchState("idle");
         }}
       />
@@ -322,7 +470,9 @@ export default function MatchScreen() {
       {matchState === "searching" && (
         <>
           <ActivityIndicator color="#E9D5FF" />
-          <Text style={styles.title}>Finding someone...</Text>
+          <Text style={styles.title}>
+            {nextBusy ? "Finding someone new..." : "Finding someone..."}
+          </Text>
 
           <TouchableOpacity
             style={[styles.secondaryButton, busy && styles.disabledButton]}
@@ -340,6 +490,27 @@ export default function MatchScreen() {
         <>
           <Text style={styles.title}>Matched</Text>
           <Text style={styles.errorText}>The matched session could not be opened.</Text>
+
+          <TouchableOpacity style={styles.secondaryButton} onPress={returnHome}>
+            <Text style={styles.secondaryButtonText}>Return Home</Text>
+          </TouchableOpacity>
+        </>
+      )}
+
+      {matchState === "disconnected" && (
+        <>
+          <Text style={styles.title}>Connection ended</Text>
+          <Text style={styles.subtitle}>{disconnectedMessage ?? "Connection ended."}</Text>
+
+          <TouchableOpacity
+            style={[styles.primaryButton, busy && styles.disabledButton]}
+            onPress={startMatching}
+            disabled={busy}
+          >
+            <Text style={styles.primaryButtonText}>
+              {busy ? "Finding..." : "Find Someone Else"}
+            </Text>
+          </TouchableOpacity>
 
           <TouchableOpacity style={styles.secondaryButton} onPress={returnHome}>
             <Text style={styles.secondaryButtonText}>Return Home</Text>
