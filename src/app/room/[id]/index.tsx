@@ -1081,67 +1081,6 @@ async function stopStreamer(person: Participant) {
   loadAll();
 }
 
-const [profile, setProfile] = useState<any>(null);
-
-useEffect(() => {
-  async function loadProfile() {
-    const { data } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", currentUserId)
-      .maybeSingle();
-
-    setProfile(data);
-  }
-
-  if (currentUserId) {
-    loadProfile();
-  }
-}, [currentUserId]);
-
-
-const startOBSStream = async () => {
-  try {
-    if (!room) return;
-if (!isHost) {
-  Alert.alert(
-    "Only the host can use OBS streaming."
-  );
-  return;
-}
-    // TEMP CLEANUP CALL
-  
-    const response = await fetch(
-      "https://sgfbbytnmodbjxqesgxq.supabase.co/functions/v1/create-ingress",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-  roomName: room.id,
-  userId: currentUserId,
-  participantName:
-    profile?.username ||
-    `Guest ${currentUserId.slice(0, 4)}`,
-}),
-      }
-    );
-
-    const data = await response.json();
-
-    Alert.alert(
-      "OBS Stream Info",
-      `Server:\n${data.url}\n\nKey:\n${data.streamKey}`
-    );
-
-    console.log(data);
-
-  } catch (err) {
-    console.log(err);
-  }
-};
-
 async function loadFriends() {
   const { data: userData } = await supabase.auth.getUser();
   const user = userData.user;
@@ -1407,12 +1346,8 @@ const requestedStreamers = [
         </View>
       </View>
 
+      {canManageQueue && (
       <View style={styles.mobileRoomActions}>
-        <TouchableOpacity style={styles.obsCompactButton} onPress={startOBSStream}>
-          <Ionicons name="desktop-outline" size={28} color="#A5F3FC" />
-          <Text style={styles.obsCompactText}>OBS</Text>
-        </TouchableOpacity>
-
         <View style={styles.mobileRoomActionRight}>
           {canManageQueue && (
             <TouchableOpacity style={styles.roomSettingsButton} onPress={openManageRoom}>
@@ -1440,6 +1375,7 @@ const requestedStreamers = [
           )}
         </View>
       </View>
+      )}
 
       {roomMetaChips}
       <Text style={styles.mobileRoomDescription}>Good vibes only. Pull up and meet new people.</Text>
@@ -1694,16 +1630,6 @@ const requestedStreamers = [
     })}
 
 <View style={styles.streamActionRow}>
-  <TouchableOpacity
-    style={styles.streamActionTile}
-    onPress={startOBSStream}
-  >
-    <Text style={styles.streamActionEmoji}>🖥</Text>
-
-    <Text style={styles.streamActionText}>
-      OBS
-    </Text>
-  </TouchableOpacity>
 
   {isHost && (
     <TouchableOpacity
@@ -2492,23 +2418,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     gap: 12,
-  },
-  obsCompactButton: {
-    alignItems: "center",
-    backgroundColor: "rgba(24, 18, 44, 0.92)",
-    borderColor: "rgba(168,85,247,0.55)",
-    borderRadius: 24,
-    borderWidth: 1,
-    gap: 6,
-    justifyContent: "center",
-    minHeight: 86,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  obsCompactText: {
-    color: "white",
-    fontSize: 17,
-    fontWeight: "900",
   },
   mobileRoomActionRight: {
     alignItems: "flex-end",

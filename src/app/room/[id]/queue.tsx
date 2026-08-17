@@ -369,6 +369,47 @@ async function toggleRoomPrivacy() {
   });
 }
 
+async function startOBSStream() {
+  try {
+    if (!room || !isHost) {
+      Alert.alert("Only the host can use OBS streaming.");
+      return;
+    }
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("username")
+      .eq("id", currentUserId)
+      .maybeSingle();
+
+    const response = await fetch(
+      "https://sgfbbytnmodbjxqesgxq.supabase.co/functions/v1/create-ingress",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          roomName: room.id,
+          userId: currentUserId,
+          participantName: profile?.username || `Guest ${currentUserId.slice(0, 4)}`,
+        }),
+      }
+    );
+
+    const data = await response.json();
+
+    Alert.alert(
+      "OBS Stream Info",
+      `Server:\n${data.url}\n\nKey:\n${data.streamKey}`
+    );
+
+    console.log(data);
+  } catch (err) {
+    console.log(err);
+  }
+}
+
 async function deleteRoom() {
   if (!room || !isHost) return;
 
@@ -741,6 +782,22 @@ setTimeout(() => {
 
           {isHost && (
   <>
+    <View style={styles.advancedCard}>
+      <Text style={styles.name}>OBS / External Stream</Text>
+      <Text style={styles.meta}>
+        Create or view the server URL and stream key for broadcasting from OBS.
+      </Text>
+
+      <TouchableOpacity
+        style={styles.obsButton}
+        onPress={startOBSStream}
+      >
+        <Text style={styles.buttonText}>
+          Get OBS Credentials
+        </Text>
+      </TouchableOpacity>
+    </View>
+
     <TouchableOpacity
       style={styles.privacyButton}
       onPress={toggleRoomPrivacy}
@@ -856,6 +913,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(124,58,237,0.18)",
   },
+  advancedCard: {
+    backgroundColor: "rgba(17, 16, 27, 0.92)",
+    borderRadius: 22,
+    padding: 16,
+    marginTop: 16,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "rgba(168,85,247,0.18)",
+  },
 
   rank: {
     color: "#A78BFA",
@@ -918,6 +984,17 @@ const styles = StyleSheet.create({
   alignItems: "center",
   marginTop: 20,
 },
+  obsButton: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: "#2A2A35",
+    borderColor: "rgba(255,255,255,0.08)",
+    borderRadius: 999,
+    borderWidth: 1,
+    marginTop: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
   
   deleteButton: {
     backgroundColor: "#7F1D1D",
