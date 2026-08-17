@@ -218,7 +218,7 @@ function MatchCallView({
   );
 
   const cameraTracks = tracks.filter(isTrackReference);
-  const localIdentity = participantIdentity ?? localParticipant.identity;
+  const localIdentity = localParticipant.identity || participantIdentity;
   const localTrack = cameraTracks.find(
     (trackRef) => trackRef.participant.identity === localIdentity,
   );
@@ -227,6 +227,10 @@ function MatchCallView({
   );
 
   useEffect(() => {
+    if (status !== "connected") {
+      return;
+    }
+
     let cancelled = false;
 
     async function enableLocalMedia() {
@@ -268,7 +272,7 @@ function MatchCallView({
       void localParticipant.setCameraEnabled(false);
       void localParticipant.setMicrophoneEnabled(false);
     };
-  }, [localParticipant]);
+  }, [localParticipant, status]);
 
   async function toggleCamera() {
     const next = !cameraEnabled;
@@ -421,6 +425,7 @@ const styles = StyleSheet.create({
   },
   controls: {
     bottom: 28,
+    elevation: 40,
     flexDirection: "row",
     gap: 10,
     left: 16,
@@ -461,6 +466,7 @@ const styles = StyleSheet.create({
     right: 16,
     top: 56,
     width: 108,
+    elevation: 30,
     zIndex: 30,
   },
   localVideo: {
@@ -507,6 +513,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 18,
     top: 214,
+    elevation: 35,
     zIndex: 35,
   },
   noticeText: {
@@ -541,6 +548,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
     position: "absolute",
+    elevation: 20,
+    zIndex: 20,
   },
   remoteVideo: {
     flex: 1,
@@ -584,6 +593,7 @@ const styles = StyleSheet.create({
     padding: 12,
     position: "absolute",
     top: 56,
+    elevation: 25,
     zIndex: 25,
   },
   statusText: {
