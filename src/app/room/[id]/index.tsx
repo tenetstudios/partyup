@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import {
   Alert,
@@ -206,6 +206,7 @@ function LivestreamPanel({
 >
         <View style={styles.liveStreamOverlay} />
 
+        {isDesktop && (
         <View style={styles.liveStreamBadgeRow}>
           <View style={styles.liveBadgeMobile}>
             <Text style={styles.liveBadgeText}>LIVE</Text>
@@ -215,6 +216,7 @@ function LivestreamPanel({
             <Text style={styles.viewerPillText}>{room.current_users} viewers</Text>
           </View>
         </View>
+        )}
 
         <View style={styles.livestreamPlaceholder}>
   <LiveKitRoomView
@@ -228,11 +230,6 @@ function LivestreamPanel({
     stopSignal={stopSignal}
   />
 
-          {!isDesktop && (
-            <TouchableOpacity style={styles.fullscreenButton} onPress={onFullscreen}>
-              <Text style={styles.fullscreenButtonText}>Fullscreen</Text>
-            </TouchableOpacity>
-          )}
         </View>
       </ImageBackground>
     </View>
@@ -266,10 +263,12 @@ export default function RoomScreen() {
   const [eventMatchError, setEventMatchError] = useState<string | null>(null);
   const [eventMatchLoading, setEventMatchLoading] = useState(false);
   const [isLocalPublishing, setIsLocalPublishing] = useState(false);
+  const [feedActionsVisible, setFeedActionsVisible] = useState(false);
   const [pendingLocalPublish, setPendingLocalPublish] = useState(false);
   const [publishSignal, setPublishSignal] = useState(0);
   const [stopPublishSignal, setStopPublishSignal] = useState(0);
   const [roomDeleted, setRoomDeleted] = useState(false);
+  const feedActionsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
   loadAll();
@@ -373,6 +372,15 @@ export default function RoomScreen() {
     supabase.removeChannel(channel);
   };
 }, [roomId, roomDeleted]);
+
+  useEffect(
+    () => () => {
+      if (feedActionsTimeoutRef.current) {
+        clearTimeout(feedActionsTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   async function loadAll() {
   await updatePresence();
@@ -1193,7 +1201,7 @@ async function makeBouncer(person: Participant) {
 }
 
 
-  const { width } = useWindowDimensions();
+  const { height, width } = useWindowDimensions();
   const isDesktop = width >= 960;
   const myParticipant = participants.find(
     (p) => p.user_id === currentUserId
@@ -1291,6 +1299,19 @@ const requestedStreamers = [
         ? "Needs Approval"
         : "Request Live";
 
+  function revealFeedActions() {
+    setFeedActionsVisible(true);
+
+    if (feedActionsTimeoutRef.current) {
+      clearTimeout(feedActionsTimeoutRef.current);
+    }
+
+    feedActionsTimeoutRef.current = setTimeout(() => {
+      setFeedActionsVisible(false);
+      feedActionsTimeoutRef.current = null;
+    }, 3200);
+  }
+
   const eventMatchAction = (
     <View style={styles.eventMatchCard}>
       <View style={styles.eventMatchIntroRow}>
@@ -1366,14 +1387,6 @@ const requestedStreamers = [
 
   const chatSection = (
     <View style={[styles.chatPane, !isDesktop && styles.chatPaneMobile]}>
-      <View style={styles.chatHeader}>
-        <View>
-          <Text style={styles.sectionTitle}>Room Chat</Text>
-          <Text style={styles.sectionMeta}>{presenceUsers.length} online now</Text>
-        </View>
-        <View style={styles.chatMetaPill}><Text style={styles.chatMetaText}>{messages.length} messages</Text></View>
-      </View>
-
       <FlatList
         data={[
   ...activities.map((activity) => ({
@@ -1547,7 +1560,10 @@ const requestedStreamers = [
           )}
 
           {!isDesktop && isLivestream(room) && (
-            <View style={styles.mobileLiveDock}>
+            <View
+              style={[styles.mobileLiveDock, { height: Math.max(360, Math.round(height * 0.5)) }]}
+              onTouchStart={revealFeedActions}
+            >
               <LivestreamPanel
                 room={room}
                 isDesktop={isDesktop}
@@ -1560,6 +1576,17 @@ const requestedStreamers = [
                 publishSignal={publishSignal}
                 stopSignal={stopPublishSignal}
               />
+              <View style={styles.feedAlwaysOverlay}>
+                <View style={styles.liveBadgeMobile}>
+                  <Text style={styles.liveBadgeText}>LIVE</Text>
+                </View>
+
+                <View style={styles.viewerPill}>
+                  <Text style={styles.viewerPillText}>{room.current_users} viewers</Text>
+                </View>
+              </View>
+
+              {feedActionsVisible && (
               <View style={styles.feedChromeOverlay}>
                 <TouchableOpacity style={styles.feedCircleButton} onPress={leaveRoom}>
                   <Ionicons name="chevron-back" size={26} color="#FFFFFF" />
@@ -1584,11 +1611,28 @@ const requestedStreamers = [
                   <Ionicons name="share-outline" size={22} color="#FFFFFF" />
                 </TouchableOpacity>
               </View>
+              )}
 
-              {myParticipant && (
+              {feedActionsVisible && (
+                <TouchableOpacity
+                  style={styles.feedFullscreenButton}
+                  onPress={() => {
+                    revealFeedActions();
+                    setIsFullscreenLive(true);
+                  }}
+                >
+                  <Ionicons name="expand-outline" size={18} color="#FFFFFF" />
+                  <Text style={styles.feedLiveButtonText}>Fullscreen</Text>
+                </TouchableOpacity>
+              )}
+
+              {feedActionsVisible && myParticipant && (
                 <TouchableOpacity
                   style={styles.feedLiveButton}
-                  onPress={toggleMyLivestream}
+                  onPress={() => {
+                    revealFeedActions();
+                    void toggleMyLivestream();
+                  }}
                   disabled={myParticipant.stream_status === "requested" && !myParticipant.can_stream}
                 >
                   <Ionicons
@@ -2327,7 +2371,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   mobileRoomOverview: {
-    gap: 16,
+    gap: 12,
     marginBottom: 14,
   },
   onlineDot: {
@@ -2358,10 +2402,20 @@ const styles = StyleSheet.create({
     borderColor: "rgba(124,58,237,0.22)",
     borderRadius: 24,
     borderWidth: 1,
-    height: 350,
-    marginBottom: 18,
+    marginBottom: 10,
     overflow: "hidden",
     position: "relative",
+  },
+  feedAlwaysOverlay: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    left: 14,
+    position: "absolute",
+    right: 14,
+    top: 14,
+    zIndex: 70,
+    elevation: 70,
   },
   feedChromeOverlay: {
     alignItems: "center",
@@ -2429,6 +2483,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     position: "absolute",
     right: 14,
+    zIndex: 80,
+    elevation: 80,
+  },
+  feedFullscreenButton: {
+    alignItems: "center",
+    backgroundColor: "rgba(124,58,237,0.88)",
+    borderRadius: 999,
+    bottom: 14,
+    flexDirection: "row",
+    gap: 8,
+    left: 14,
+    minHeight: 44,
+    paddingHorizontal: 16,
+    position: "absolute",
     zIndex: 80,
     elevation: 80,
   },
@@ -2851,29 +2919,6 @@ const styles = StyleSheet.create({
     padding: 0,
     minHeight: 360,
   },
-  chatHeader: {
-    backgroundColor: "rgba(14, 12, 26, 0.88)",
-    borderColor: "rgba(124,58,237,0.18)",
-    borderRadius: 20,
-    borderWidth: 1,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 12,
-    marginBottom: 12,
-    padding: 14,
-  },
-  chatMetaPill: {
-    backgroundColor: "rgba(88,28,135,0.55)",
-    paddingVertical: 12,
-    paddingHorizontal: 18,
-    borderRadius: 999,
-  },
-  chatMetaText: {
-    color: "#E9D5FF",
-    fontSize: 14,
-    fontWeight: "900",
-  },
   chatList: {
     maxHeight: 150,
     marginBottom: 10,
@@ -2970,23 +3015,6 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 15,
   },
-  fullscreenButton: {
-  position: "absolute",
-  right: 18,
-  bottom: 18,
-  backgroundColor: "rgba(124,58,237,0.85)",
-  paddingHorizontal: 18,
-  paddingVertical: 10,
-  borderRadius: 999,
-  zIndex: 40,
-  elevation: 40,
-},
-
-fullscreenButtonText: {
-  color: "white",
-  fontWeight: "900",
-},
-
 fullscreenLivePage: {
   flex: 1,
   backgroundColor: "#000",
