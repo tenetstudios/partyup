@@ -14,7 +14,9 @@ import { Track } from "livekit-client";
 import type { TrackReference } from "@livekit/react-native";
 import { supabase } from "../../lib/supabase";
 import {
+  endMatchSession,
   getMatchConnectionState,
+  guestEndMatchSession,
   guestGetMatchConnectionState,
   guestKeepMatchConnection,
   keepMatchConnection,
@@ -67,6 +69,23 @@ export default function MatchLiveKitRoomView({
   const [roomName, setRoomName] = useState<string | null>(null);
   const [status, setStatus] = useState<MatchLiveKitStatus>("requesting-token");
   const [token, setToken] = useState<string | null>(null);
+
+  async function endCurrentMatch() {
+    if (isGuest && !guestToken) {
+      return;
+    }
+
+    try {
+      if (isGuest && guestToken) {
+        await guestEndMatchSession(sessionId, guestToken);
+        return;
+      }
+
+      await endMatchSession(sessionId);
+    } catch {
+      // Local disconnect should still complete; polling/realtime will recover if the RPC already ran elsewhere.
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -185,6 +204,7 @@ export default function MatchLiveKitRoomView({
         setMessage(null);
       }}
       onDisconnected={() => {
+        void endCurrentMatch();
         setStatus("disconnected");
         setMessage("You left the Match video room.");
       }}
@@ -203,6 +223,7 @@ export default function MatchLiveKitRoomView({
         onNextMatch={onNextMatch}
         onRemoteParticipantLeft={onRemoteParticipantLeft}
         onReturnToMatch={onReturnToMatch}
+        onEndMatch={endCurrentMatch}
         guestToken={guestToken}
         isGuest={isGuest}
       />
@@ -220,6 +241,7 @@ function MatchCallView({
   status,
   message,
   onReturnToMatch,
+  onEndMatch,
   guestToken,
   isGuest,
 }: {
@@ -230,6 +252,7 @@ function MatchCallView({
   onNextMatch: (sessionId: string) => Promise<void>;
   onRemoteParticipantLeft: () => void;
   onReturnToMatch: () => void;
+  onEndMatch: () => Promise<void>;
   participantIdentity: string | null;
   roomName: string | null;
   sessionId: string;
@@ -286,6 +309,7 @@ function MatchCallView({
     }
 
     const timeoutId = setTimeout(() => {
+      void onEndMatch();
       onRemoteParticipantLeft();
     }, 1500);
 
@@ -295,6 +319,7 @@ function MatchCallView({
   }, [
     hasSeenRemoteParticipant,
     nextBusy,
+    onEndMatch,
     onRemoteParticipantLeft,
     remoteParticipantCount,
     status,
@@ -478,7 +503,8 @@ function MatchCallView({
     }
   }
 
-  function leaveMatch() {
+  async function leaveMatch() {
+    await onEndMatch();
     room.disconnect();
     onReturnToMatch();
   }

@@ -350,6 +350,30 @@ export async function guestNextMatch(
   return normalizeEnqueueResult(data);
 }
 
+export async function endMatchSession(sessionId: string): Promise<void> {
+  const { error } = await supabase.rpc("end_match_session", {
+    p_match_session_id: sessionId,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+export async function guestEndMatchSession(
+  sessionId: string,
+  guestToken: string,
+): Promise<void> {
+  const { error } = await supabase.rpc("guest_end_match_session", {
+    p_match_session_id: sessionId,
+    p_guest_token: guestToken,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
 export async function keepMatchConnection(sessionId: string): Promise<MatchConnectionResult> {
   const { data, error } = await supabase.rpc("keep_match_connection", {
     p_match_session_id: sessionId,
