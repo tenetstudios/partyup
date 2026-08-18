@@ -15,19 +15,32 @@ import * as WebBrowser from "expo-web-browser";
 
 WebBrowser.maybeCompleteAuthSession();
 
+type RoutableUser = {
+  id: string;
+  is_anonymous?: boolean;
+};
+
+function isAnonymousUser(user: { is_anonymous?: boolean } | null) {
+  return Boolean(user?.is_anonymous);
+}
+
+async function routeSignedInUser(user: RoutableUser) {
+  if (isAnonymousUser(user)) {
+    router.replace("/home");
+    return;
+  }
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("username")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  router.replace(profile?.username ? "/home" : "/profile");
+}
 
 export default function Index() {
   const [loading, setLoading] = useState(false);
-
-  async function routeSignedInUser(userId: string) {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("username")
-      .eq("id", userId)
-      .maybeSingle();
-
-    router.replace(profile?.username ? "/home" : "/profile");
-  }
 
   useEffect(() => {
   let mounted = true;
@@ -40,7 +53,7 @@ export default function Index() {
   if (!mounted || !user) return;
 
   routed = true;
-await routeSignedInUser(user.id);
+await routeSignedInUser(user);
 }
 
 loadSavedSession();
@@ -51,14 +64,8 @@ const {
   const user = session?.user;
   if (!user || routed) return;
 
-  const { data: existingProfile } = await supabase
-    .from("profiles")
-    .select("id")
-    .eq("id", user.id)
-    .maybeSingle();
-
   routed = true;
-  await routeSignedInUser(user.id);
+  await routeSignedInUser(user);
 });
 
 return () => {
@@ -162,7 +169,7 @@ const { data: setSessionData, error: sessionError } =
     return;
   }
 
-  await routeSignedInUser(signedInUser.id);
+  await routeSignedInUser(signedInUser);
   setLoading(false);
 
 };
@@ -183,13 +190,7 @@ const { data: setSessionData, error: sessionError } =
         return;
       }
 
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("username")
-        .eq("id", data.user.id)
-        .maybeSingle();
-
-      router.replace(profile?.username ? "/home" : "/profile");
+      router.replace("/home");
     } catch (err: any) {
       Alert.alert("Error", err.message || "Something went wrong");
     } finally {
