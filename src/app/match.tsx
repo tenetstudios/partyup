@@ -6,12 +6,18 @@ import { supabase } from "../../lib/supabase";
 import MatchLiveKitRoomView from "../components/MatchLiveKitRoomView";
 import {
   cancelMatchSearch,
+  createGuestSession,
   enqueueAndMatch,
   ensurePartyUpIdentity,
   getCurrentMatchQueueState,
   getGlobalMatchPool,
   getMatchSession,
   getMatchPool,
+  guestCancelMatchSearch,
+  guestEnqueueAndMatch,
+  guestGetCurrentMatchQueueState,
+  guestGetMatchSession,
+  guestNextMatch,
   nextMatch,
   type MatchPool,
   type MatchSession,
@@ -45,10 +51,13 @@ export default function MatchScreen() {
   const [searchIdentityId, setSearchIdentityId] = useState<string | null>(null);
   const [session, setSession] = useState<MatchSession | null>(null);
   const [user, setUser] = useState<User | null>(null);
+  const [guestToken, setGuestToken] = useState<string | null>(null);
+  const [guestIdentityId, setGuestIdentityId] = useState<string | null>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
   const sessionChannelRef = useRef<RealtimeChannel | null>(null);
 
   const hasAccount = Boolean(user && !isAnonymousUser(user));
+  const isGuest = !hasAccount;
   const contextLabel =
     initialPoolId && (activePool?.pool_type === "event" || !activePool)
       ? "Matching with people here"
@@ -83,9 +92,13 @@ export default function MatchScreen() {
   );
 
   const transitionToMatched = useCallback(
-    async (sessionId: string) => {
+    async (sessionId: string, guestTokenOverride?: string | null) => {
       try {
-        const matchedSession = await getMatchSession(sessionId);
+        const token = guestTokenOverride ?? guestToken;
+        const matchedSession =
+          isGuest && token
+            ? await guestGetMatchSession(sessionId, token)
+            : await getMatchSession(sessionId);
 
         clearSubscription();
         clearSessionSubscription();
@@ -99,7 +112,7 @@ export default function MatchScreen() {
         fail(reason instanceof Error ? reason.message : "The matched session could not be loaded.");
       }
     },
-    [clearSessionSubscription, clearSubscription, fail],
+    [clearSessionSubscription, clearSubscription, fail, guestToken, isGuest],
   );
 
   const transitionToDisconnected = useCallback(
@@ -118,7 +131,10 @@ export default function MatchScreen() {
 
   const checkCurrentSessionEnded = useCallback(
     async (sessionId: string) => {
-      const currentSession = await getMatchSession(sessionId);
+      const currentSession =
+        isGuest && guestToken
+          ? await guestGetMatchSession(sessionId, guestToken)
+          : await getMatchSession(sessionId);
 
       if (currentSession.status === "ended" && !nextBusy) {
         transitionToDisconnected(
@@ -127,18 +143,22 @@ export default function MatchScreen() {
         );
       }
     },
-    [nextBusy, transitionToDisconnected],
+    [guestToken, isGuest, nextBusy, transitionToDisconnected],
   );
 
   const checkCurrentQueueForMatch = useCallback(
-    async (identityId: string) => {
-      const queueState = await getCurrentMatchQueueState(identityId);
+    async (identityId: string, guestTokenOverride?: string | null) => {
+      const token = guestTokenOverride ?? guestToken;
+      const queueState =
+        isGuest && token
+          ? await guestGetCurrentMatchQueueState(token)
+          : await getCurrentMatchQueueState(identityId);
 
       if (queueState?.status === "matched" && queueState.match_session_id) {
-        await transitionToMatched(queueState.match_session_id);
+        await transitionToMatched(queueState.match_session_id, token);
       }
     },
-    [transitionToMatched],
+    [guestToken, isGuest, transitionToMatched],
   );
 
   const subscribeToQueue = useCallback(
@@ -368,19 +388,34 @@ export default function MatchScreen() {
       const currentUser = data.user ?? null;
       setUser(currentUser);
 
-      if (!currentUser || isAnonymousUser(currentUser)) {
-        throw new Error("Sign in to test Match.");
-      }
-
       try {
-        await cancelMatchSearch();
+        if (currentUser && !isAnonymousUser(currentUser)) {
+          await cancelMatchSearch();
+        } else if (guestToken) {
+          await guestCancelMatchSearch(guestToken);
+        }
       } catch {
         // A fresh search should not be blocked if there was no active queue row.
       }
 
-      const identity = await ensurePartyUpIdentity();
       const pool = initialPoolId ? await getMatchPool(initialPoolId) : activePool ?? (await getGlobalMatchPool());
-      const result = await enqueueAndMatch(pool.id);
+      let identityId: string;
+      let result;
+      let guestTokenForMatch: string | null = null;
+
+      if (currentUser && !isAnonymousUser(currentUser)) {
+        const identity = await ensurePartyUpIdentity();
+        identityId = identity.id;
+        result = await enqueueAndMatch(pool.id);
+      } else {
+        const guestSession = await createGuestSession();
+        setGuestToken(guestSession.guestToken);
+        setGuestIdentityId(guestSession.identityId);
+        guestTokenForMatch = guestSession.guestToken;
+        identityId = guestSession.identityId;
+        result = await guestEnqueueAndMatch(pool.id, guestSession.guestToken);
+      }
+
       setActivePool(pool);
 
       if (result.matched) {
@@ -388,14 +423,22 @@ export default function MatchScreen() {
           throw new Error("Matchmaking returned a match without a session.");
         }
 
-        await transitionToMatched(result.session_id);
+        await transitionToMatched(
+          result.session_id,
+          guestTokenForMatch,
+        );
         return;
       }
 
       setMatchState("searching");
-      setSearchIdentityId(identity.id);
-      await subscribeToQueue(identity.id);
-      await checkCurrentQueueForMatch(identity.id);
+      setSearchIdentityId(identityId);
+      if (currentUser && !isAnonymousUser(currentUser)) {
+        await subscribeToQueue(identityId);
+      }
+      await checkCurrentQueueForMatch(
+        identityId,
+        guestTokenForMatch,
+      );
     } catch (reason) {
       fail(reason instanceof Error ? reason.message : "Matchmaking could not be started.");
     } finally {
@@ -412,7 +455,11 @@ export default function MatchScreen() {
     setError(null);
 
     try {
-      await cancelMatchSearch();
+      if (isGuest && guestToken) {
+        await guestCancelMatchSearch(guestToken);
+      } else {
+        await cancelMatchSearch();
+      }
       clearSubscription();
       clearSessionSubscription();
       setSession(null);
@@ -449,7 +496,10 @@ export default function MatchScreen() {
     setDisconnectedSessionId(null);
 
     try {
-      const result = await nextMatch(sessionId);
+      const result =
+        isGuest && guestToken
+          ? await guestNextMatch(sessionId, guestToken)
+          : await nextMatch(sessionId);
       clearSessionSubscription();
       setSession(null);
 
@@ -458,15 +508,18 @@ export default function MatchScreen() {
           throw new Error("Matchmaking returned a match without a session.");
         }
 
-        await transitionToMatched(result.session_id);
+        await transitionToMatched(result.session_id, isGuest ? guestToken : null);
         return;
       }
 
-      const identity = await ensurePartyUpIdentity();
+      const identityId =
+        isGuest && guestIdentityId ? guestIdentityId : (await ensurePartyUpIdentity()).id;
       setMatchState("searching");
-      setSearchIdentityId(identity.id);
-      await subscribeToQueue(identity.id);
-      await checkCurrentQueueForMatch(identity.id);
+      setSearchIdentityId(identityId);
+      if (!isGuest) {
+        await subscribeToQueue(identityId);
+      }
+      await checkCurrentQueueForMatch(identityId, isGuest ? guestToken : null);
     } catch (reason) {
       fail(reason instanceof Error ? reason.message : "Could not move to the next Match.");
     } finally {
@@ -492,27 +545,11 @@ export default function MatchScreen() {
     );
   }
 
-  if (!hasAccount) {
-    return (
-      <View style={styles.page}>
-        <Text style={styles.title}>Match</Text>
-        {contextLabel && <Text style={styles.contextText}>{contextLabel}</Text>}
-        <Text style={styles.subtitle}>Sign in to test Match</Text>
-
-        <TouchableOpacity style={styles.primaryButton} onPress={() => router.replace("/")}>
-          <Text style={styles.primaryButtonText}>Go to Sign In</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.secondaryButton} onPress={returnHome}>
-          <Text style={styles.secondaryButtonText}>Return Home</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
   if (matchState === "matched" && session?.id) {
     return (
       <MatchLiveKitRoomView
+        guestToken={isGuest ? guestToken : null}
+        isGuest={isGuest}
         nextBusy={nextBusy}
         onNextMatch={handleNextMatch}
         onRemoteParticipantLeft={() => {

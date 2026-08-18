@@ -13,7 +13,12 @@ import {
 import { Track } from "livekit-client";
 import type { TrackReference } from "@livekit/react-native";
 import { supabase } from "../../lib/supabase";
-import { getMatchConnectionState, keepMatchConnection } from "../lib/matchmaking";
+import {
+  getMatchConnectionState,
+  guestGetMatchConnectionState,
+  guestKeepMatchConnection,
+  keepMatchConnection,
+} from "../lib/matchmaking";
 
 registerGlobals();
 
@@ -31,6 +36,8 @@ type MatchLiveKitTokenResponse = {
 };
 
 type Props = {
+  guestToken?: string | null;
+  isGuest?: boolean;
   nextBusy: boolean;
   onNextMatch: (sessionId: string) => Promise<void>;
   onRemoteParticipantLeft: () => void;
@@ -47,6 +54,8 @@ function isTrackReference(trackRef: unknown): trackRef is TrackReference {
 }
 
 export default function MatchLiveKitRoomView({
+  guestToken,
+  isGuest = false,
   nextBusy,
   onNextMatch,
   onRemoteParticipantLeft,
@@ -75,13 +84,25 @@ export default function MatchLiveKitRoomView({
       setRoomName(null);
       setParticipantIdentity(null);
 
-      const { data, error } = await supabase.functions.invoke<MatchLiveKitTokenResponse>(
-        "match-livekit-token",
-        {
-          body: {
+      if (isGuest && !guestToken) {
+        setStatus("error");
+        setMessage("Guest Match access was not ready. Return to Match and try again.");
+        return;
+      }
+
+      const functionName = isGuest ? "guest-match-livekit-token" : "match-livekit-token";
+      const body = isGuest
+        ? {
+            guestToken,
             matchSessionId: sessionId,
-          },
-        },
+          }
+        : {
+            matchSessionId: sessionId,
+          };
+
+      const { data, error } = await supabase.functions.invoke<MatchLiveKitTokenResponse>(
+        functionName,
+        { body },
       );
 
       if (cancelled) {
@@ -111,7 +132,7 @@ export default function MatchLiveKitRoomView({
     return () => {
       cancelled = true;
     };
-  }, [sessionId]);
+  }, [guestToken, isGuest, sessionId]);
 
   useEffect(() => {
     AudioSession.startAudioSession();
@@ -182,6 +203,8 @@ export default function MatchLiveKitRoomView({
         onNextMatch={onNextMatch}
         onRemoteParticipantLeft={onRemoteParticipantLeft}
         onReturnToMatch={onReturnToMatch}
+        guestToken={guestToken}
+        isGuest={isGuest}
       />
     </LiveKitRoom>
   );
@@ -197,7 +220,11 @@ function MatchCallView({
   status,
   message,
   onReturnToMatch,
+  guestToken,
+  isGuest,
 }: {
+  guestToken?: string | null;
+  isGuest: boolean;
   message: string | null;
   nextBusy: boolean;
   onNextMatch: (sessionId: string) => Promise<void>;
@@ -287,7 +314,10 @@ function MatchCallView({
 
     async function checkConnectionState() {
       try {
-        const result = await getMatchConnectionState(sessionId);
+        const result =
+          isGuest && guestToken
+            ? await guestGetMatchConnectionState(sessionId, guestToken)
+            : await getMatchConnectionState(sessionId);
 
         if (!cancelled && result.mutual) {
           setKeepInTouchStatus("connected");
@@ -325,7 +355,7 @@ function MatchCallView({
       clearInterval(intervalId);
       supabase.removeChannel(channel);
     };
-  }, [keepInTouchStatus, sessionId]);
+  }, [guestToken, isGuest, keepInTouchStatus, sessionId]);
 
   useEffect(() => {
     if (status !== "connected") {
@@ -411,7 +441,14 @@ function MatchCallView({
     setKeepInTouchMessage(null);
 
     try {
-      const result = await keepMatchConnection(sessionId);
+      if (isGuest && !guestToken) {
+        throw new Error("Guest Match access was not ready.");
+      }
+
+      const result =
+        isGuest && guestToken
+          ? await guestKeepMatchConnection(sessionId, guestToken)
+          : await keepMatchConnection(sessionId);
 
       if (result.mutual) {
         setKeepInTouchStatus("connected");

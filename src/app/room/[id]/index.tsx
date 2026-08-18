@@ -798,13 +798,6 @@ async function startEventMatch() {
   setEventMatchError(null);
 
   try {
-    const { data } = await supabase.auth.getUser();
-    const user = data.user;
-
-    if (!user || (user as { is_anonymous?: boolean }).is_anonymous) {
-      throw new Error("Sign in to use Match in this event.");
-    }
-
     const pool = await getOrCreateEventMatchPool(room.id);
 
     router.push({
