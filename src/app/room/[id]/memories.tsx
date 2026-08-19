@@ -7,6 +7,7 @@ import {
   Alert,
   Image,
   Linking,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
@@ -89,6 +90,7 @@ export default function RoomMemoriesScreen() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
 
   const loadMemories = useCallback(async () => {
     const { data, error: memoriesError } = await supabase.rpc("get_room_memories", {
@@ -192,12 +194,17 @@ export default function RoomMemoriesScreen() {
 
     try {
       const response = await fetch(asset.uri);
-      const blob = await response.blob();
+
+      if (!response.ok) {
+        throw new Error("Could not read the selected media file.");
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
       const contentType = getContentType(asset, mediaType);
 
       const { error: uploadError } = await supabase.storage
         .from("room-memories")
-        .upload(mediaPath, blob, {
+        .upload(mediaPath, arrayBuffer, {
           contentType,
           upsert: false,
         });
@@ -263,7 +270,15 @@ export default function RoomMemoriesScreen() {
 
   return (
     <ScrollView style={styles.page} contentContainerStyle={styles.container}>
-      <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+      <TouchableOpacity
+        style={styles.backButton}
+        onPress={() => {
+          router.push({
+            pathname: "/room/[id]",
+            params: { id: roomId },
+          });
+        }}
+      >
         <Ionicons name="chevron-back" size={20} color="#D9D5E8" />
         <Text style={styles.backText}>Back to room</Text>
       </TouchableOpacity>
@@ -377,7 +392,12 @@ export default function RoomMemoriesScreen() {
             return (
               <View key={memory.id} style={styles.memoryCard}>
                 {memory.media_type === "image" ? (
-                  <Image source={{ uri: publicUrl }} style={styles.memoryImage} />
+                  <TouchableOpacity
+                    activeOpacity={0.88}
+                    onPress={() => setSelectedImageUrl(publicUrl)}
+                  >
+                    <Image source={{ uri: publicUrl }} style={styles.memoryImage} />
+                  </TouchableOpacity>
                 ) : (
                   <TouchableOpacity
                     style={styles.videoTile}
@@ -421,6 +441,31 @@ export default function RoomMemoriesScreen() {
           })}
         </View>
       )}
+
+      <Modal
+        animationType="fade"
+        transparent
+        visible={!!selectedImageUrl}
+        onRequestClose={() => setSelectedImageUrl(null)}
+      >
+        <View style={styles.imageViewerBackdrop}>
+          <TouchableOpacity
+            accessibilityLabel="Close image"
+            style={styles.imageViewerClose}
+            onPress={() => setSelectedImageUrl(null)}
+          >
+            <Ionicons name="close" size={26} color="#FFFFFF" />
+          </TouchableOpacity>
+
+          {selectedImageUrl && (
+            <Image
+              source={{ uri: selectedImageUrl }}
+              style={styles.imageViewerImage}
+              resizeMode="contain"
+            />
+          )}
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -433,17 +478,25 @@ const styles = StyleSheet.create({
   container: {
     padding: 18,
     paddingBottom: 36,
+    paddingTop: 30,
   },
   backButton: {
     alignItems: "center",
-    alignSelf: "flex-start",
+    alignSelf: "stretch",
+    backgroundColor: "#7C3AED",
+    borderColor: "rgba(255,255,255,0.16)",
+    borderRadius: 999,
+    borderWidth: 1,
     flexDirection: "row",
-    gap: 6,
+    gap: 8,
+    justifyContent: "center",
     marginBottom: 18,
+    minHeight: 46,
+    paddingHorizontal: 16,
   },
   backText: {
-    color: "#D9D5E8",
-    fontWeight: "800",
+    color: "#FFFFFF",
+    fontWeight: "900",
   },
   header: {
     marginBottom: 18,
@@ -677,5 +730,31 @@ const styles = StyleSheet.create({
     height: 30,
     justifyContent: "center",
     width: 30,
+  },
+  imageViewerBackdrop: {
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.94)",
+    flex: 1,
+    justifyContent: "center",
+    padding: 16,
+    paddingTop: 56,
+  },
+  imageViewerClose: {
+    alignItems: "center",
+    backgroundColor: "#7C3AED",
+    borderColor: "rgba(255,255,255,0.18)",
+    borderRadius: 22,
+    borderWidth: 1,
+    height: 44,
+    justifyContent: "center",
+    position: "absolute",
+    right: 18,
+    top: 46,
+    width: 44,
+    zIndex: 10,
+  },
+  imageViewerImage: {
+    height: "86%",
+    width: "100%",
   },
 });
