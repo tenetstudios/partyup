@@ -520,7 +520,7 @@ const styles = StyleSheet.create({
   position: "absolute",
   left: 12,
   right: 12,
-  bottom: 12,
+  top: "38%",
   flexDirection: "row",
   gap: 8,
   zIndex: 9999,
