@@ -118,6 +118,8 @@ type FriendProfile = {
   avatar_url: string | null;
 };
 
+const quickChatEmojis = ["😀", "😂", "❤️", "🔥", "👋", "🎉", "👍", "😭"];
+
 function getGuestName(userId: string) {
   return `Guest ${userId.slice(0, 4)}`;
 }
@@ -258,6 +260,7 @@ export default function RoomScreen() {
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [messageText, setMessageText] = useState("");
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [currentUserId, setCurrentUserId] = useState("");
   const [myQueueStatus, setMyQueueStatus] = useState<string | null>(null);
   const [presenceUsers, setPresenceUsers] = useState<PresenceUser[]>([]);
@@ -885,6 +888,11 @@ const { error } = await supabase.from("room_messages").insert({
     loadMessages();
   }
 
+  function insertEmoji(emoji: string) {
+    setMessageText((current) => `${current}${emoji}`);
+    setEmojiPickerOpen(false);
+  }
+
   async function updatePresence() {
   // Validate room ID is a real UUID
   if (!isValidUUID(roomId)) {
@@ -1427,6 +1435,11 @@ const requestedStreamers = [
         minute: "2-digit",
       })
     : "--:--";
+  const messageParticipant = participants.find(
+    (person) => person.user_id === item.user_id
+  );
+  const isMessageHost = room.host_id === item.user_id;
+  const isMessageBouncer = messageParticipant?.room_role === "bouncer";
 
   return (
     <View style={[styles.messageCard, !isDesktop && styles.messageCardMobile]}>
@@ -1445,8 +1458,12 @@ const requestedStreamers = [
             {displayName}
           </Text>
 
-          {room.host_id === item.user_id && (
+          {isMessageHost && (
             <Text style={styles.hostBadge}>Host</Text>
+          )}
+
+          {!isMessageHost && isMessageBouncer && (
+            <Text style={styles.hostBadge}>Bouncer</Text>
           )}
         </TouchableOpacity>
 
@@ -1470,22 +1487,56 @@ const requestedStreamers = [
       )}
 
       <View style={[styles.chatInputContainer, !isDesktop && styles.chatInputContainerMobile]}>
-        <TextInput
-          value={messageText}
-          onChangeText={(text) => {
-            setMessageText(text);
-            if (text.trim()) {
-              updateTyping();
-            }
-          }}
-          placeholder="Type a message"
-          placeholderTextColor="#999"
-          style={styles.chatInput}
-        />
+        <View style={styles.chatInputShell}>
+          <TextInput
+            value={messageText}
+            onChangeText={(text) => {
+              setMessageText(text);
+              if (text.trim()) {
+                updateTyping();
+              }
+            }}
+            placeholder="Type a message"
+            placeholderTextColor="#999"
+            style={styles.chatInput}
+          />
+          <TouchableOpacity
+            accessibilityLabel="Open emoji picker"
+            style={styles.emojiButton}
+            onPress={() => setEmojiPickerOpen(true)}
+          >
+            <Ionicons name="happy-outline" size={22} color="#E9D5FF" />
+          </TouchableOpacity>
+        </View>
         <TouchableOpacity style={styles.sendButton} onPress={sendMessage}>
           <Ionicons name="send" size={24} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
+
+      <Modal
+        animationType="fade"
+        transparent
+        visible={emojiPickerOpen}
+        onRequestClose={() => setEmojiPickerOpen(false)}
+      >
+        <TouchableOpacity
+          activeOpacity={1}
+          style={styles.emojiModalBackdrop}
+          onPress={() => setEmojiPickerOpen(false)}
+        >
+          <View style={styles.emojiPicker}>
+            {quickChatEmojis.map((emoji) => (
+              <TouchableOpacity
+                key={emoji}
+                style={styles.emojiOption}
+                onPress={() => insertEmoji(emoji)}
+              >
+                <Text style={styles.emojiOptionText}>{emoji}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 
@@ -2568,12 +2619,12 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
   },
   messageTextMobile: {
-    fontSize: 17,
-    lineHeight: 25,
+    fontSize: 14,
+    lineHeight: 19,
   },
   chatInputContainerMobile: {
-    marginTop: 10,
-    paddingTop: 10,
+    marginTop: 8,
+    paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: "rgba(255,255,255,0.08)",
   },
@@ -2934,34 +2985,36 @@ const styles = StyleSheet.create({
   },
   chatList: {
     maxHeight: 150,
-    marginBottom: 10,
+    marginBottom: 8,
   },
   chatListContent: {
-    paddingBottom: 10,
+    paddingBottom: 6,
   },
   messageCard: {
     backgroundColor: "transparent",
     borderRadius: 0,
     padding: 0,
-    marginBottom: 14,
+    marginBottom: 8,
     borderWidth: 0,
   },
   messageHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 10,
-    gap: 10,
+    alignItems: "center",
+    marginBottom: 4,
+    gap: 8,
   },
   messageUserRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 7,
     flex: 1,
+    minWidth: 0,
   },
   messageAvatar: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: "#7C3AED",
     alignItems: "center",
     justifyContent: "center",
@@ -2973,28 +3026,29 @@ const styles = StyleSheet.create({
   },
   messageUser: {
     color: "#C4B5FD",
-    fontWeight: "900",
-    fontSize: 15,
-    flex: 1,
+    fontWeight: "800",
+    fontSize: 14,
+    flexShrink: 1,
   },
   hostBadge: {
     color: "#D8B4FE",
     fontSize: 11,
     fontWeight: "800",
     backgroundColor: "rgba(124,58,237,0.16)",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
     borderRadius: 999,
   },
   messageTime: {
     color: "#8888AA",
     fontSize: 11,
+    flexShrink: 0,
   },
   messageText: {
     color: "#D9D5E8",
-    fontSize: 15,
-    lineHeight: 21,
-    marginLeft: 56,
+    fontSize: 14,
+    lineHeight: 19,
+    marginLeft: 39,
   },
   typingPill: {
     backgroundColor: "rgba(124,58,237,0.18)",
@@ -3011,22 +3065,67 @@ const styles = StyleSheet.create({
   },
   chatInputContainer: {
     flexDirection: "row",
-    gap: 12,
+    gap: 8,
     alignItems: "center",
     backgroundColor: "rgba(14, 12, 26, 0.92)",
     borderColor: "rgba(255,255,255,0.08)",
     borderRadius: 36,
     borderWidth: 1,
-    padding: 8,
+    padding: 7,
+  },
+  chatInputShell: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderRadius: 26,
+    paddingLeft: 14,
+    paddingRight: 6,
   },
   chatInput: {
     flex: 1,
     color: "white",
-    backgroundColor: "rgba(255,255,255,0.04)",
-    borderRadius: 26,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
+    backgroundColor: "transparent",
+    paddingHorizontal: 0,
+    paddingVertical: 10,
     fontSize: 15,
+  },
+  emojiButton: {
+    alignItems: "center",
+    borderRadius: 20,
+    height: 38,
+    justifyContent: "center",
+    width: 38,
+  },
+  emojiModalBackdrop: {
+    flex: 1,
+    justifyContent: "flex-end",
+    padding: 18,
+    backgroundColor: "rgba(0,0,0,0.22)",
+  },
+  emojiPicker: {
+    alignSelf: "center",
+    backgroundColor: "rgba(14, 12, 26, 0.98)",
+    borderColor: "rgba(255,255,255,0.12)",
+    borderRadius: 22,
+    borderWidth: 1,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    maxWidth: 320,
+    padding: 10,
+  },
+  emojiOption: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 18,
+    height: 42,
+    justifyContent: "center",
+    width: 42,
+  },
+  emojiOptionText: {
+    fontSize: 24,
   },
 fullscreenLivePage: {
   flex: 1,
@@ -3434,9 +3533,9 @@ activityCard: {
   alignSelf: "center",
   backgroundColor: "rgba(124,58,237,0.14)",
   borderRadius: 999,
-  paddingHorizontal: 14,
-  paddingVertical: 8,
-  marginBottom: 12,
+  paddingHorizontal: 12,
+  paddingVertical: 5,
+  marginBottom: 8,
 },
 
 activityText: {
