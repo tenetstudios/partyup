@@ -1086,9 +1086,9 @@ async function syncRoomCounts(roomId: string) {
   </Text>
 </TouchableOpacity>
 
-        <TouchableOpacity style={styles.navItem} onPress={() => router.push("/friends")}>
+        <TouchableOpacity style={styles.navItem} onPress={() => router.push("/connections" as never)}>
           <Icon name="person2" size={27} color="#A0A0AA" />
-          <Text style={styles.navText}>Friends</Text>
+          <Text style={styles.navText}>People</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.navItem} onPress={() => router.push("/profile")}>

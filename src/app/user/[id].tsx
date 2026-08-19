@@ -2,12 +2,17 @@ import { Image } from "expo-image";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import {
+  Alert,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+import {
+  getProfileSocialState,
+  removePartyUpConnection,
+} from "../../../lib/connections";
 import { supabase } from "../../../lib/supabase";
 
 type ProfileView = {
@@ -28,6 +33,8 @@ export default function UserProfile() {
   const [roomsHosted, setRoomsHosted] = useState(0);
   const [isLiveNow, setIsLiveNow] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
+  const [connectionId, setConnectionId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
 
@@ -72,14 +79,6 @@ export default function UserProfile() {
   }
 
   async function loadProfileStats(profileId: string, userId: string) {
-    const followersQuery = supabase
-      .from("follows")
-      .select("id")
-      .eq("following_id", profileId);
-    const followingQuery = supabase
-      .from("follows")
-      .select("id")
-      .eq("follower_id", profileId);
     const roomsQuery = supabase
       .from("event_rooms")
       .select("id")
@@ -90,16 +89,13 @@ export default function UserProfile() {
       .eq("host_id", profileId)
       .eq("status", "live");
 
-    const [followersRes, followingRes, roomsRes, liveRes] = await Promise.all([
-      followersQuery,
-      followingQuery,
+    const [socialState, roomsRes, liveRes] = await Promise.all([
+      getProfileSocialState(profileId),
       roomsQuery,
       liveQuery,
     ]);
 
     if (
-      followersRes.error ||
-      followingRes.error ||
       roomsRes.error ||
       liveRes.error
     ) {
@@ -107,25 +103,13 @@ export default function UserProfile() {
       return false;
     }
 
-    setFollowers((followersRes.data || []).length);
-    setFollowing((followingRes.data || []).length);
+    setFollowers(socialState.followers);
+    setFollowing(socialState.following);
+    setIsFollowing(socialState.is_following);
+    setIsConnected(socialState.connected);
+    setConnectionId(socialState.connection_id);
     setRoomsHosted((roomsRes.data || []).length);
     setIsLiveNow((liveRes.data || []).length > 0);
-
-    if (userId) {
-      const { data: followData, error: followError } = await supabase
-        .from("follows")
-        .select("id")
-        .eq("follower_id", userId)
-        .eq("following_id", profileId)
-        .maybeSingle();
-
-      if (!followError) {
-        setIsFollowing(!!followData);
-      }
-    } else {
-      setIsFollowing(false);
-    }
 
     return true;
   }
@@ -166,6 +150,36 @@ export default function UserProfile() {
     }
   }
 
+  async function removeConnection() {
+    if (!connectionId || processing) return;
+
+    Alert.alert(
+      "Remove Connection?",
+      "Remove this PartyUp Connection? Following will not change.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setProcessing(true);
+              await removePartyUpConnection(connectionId);
+              setIsConnected(false);
+              setConnectionId(null);
+            } catch (error) {
+              window.alert(
+                error instanceof Error ? error.message : "Could not remove this Connection."
+              );
+            } finally {
+              setProcessing(false);
+            }
+          },
+        },
+      ]
+    );
+  }
+
   return (
     <ScrollView style={styles.page} contentContainerStyle={styles.container}>
       <TouchableOpacity
@@ -200,6 +214,11 @@ export default function UserProfile() {
                     <Text style={styles.liveBadgeText}>LIVE NOW</Text>
                   </View>
                 )}
+                {isConnected && (
+                  <View style={styles.connectedBadge}>
+                    <Text style={styles.connectedBadgeText}>Connected</Text>
+                  </View>
+                )}
                 <View style={styles.trustBadge}>
                   <Text style={styles.trustBadgeText}>Trusted Host</Text>
                 </View>
@@ -228,18 +247,34 @@ export default function UserProfile() {
             {currentUserId === profile.id ? (
               <Text style={styles.selfNotice}>This is your public profile.</Text>
             ) : (
-              <TouchableOpacity
-                style={[
-                  styles.followButton,
-                  (!currentUserId || processing) && styles.followButtonDisabled,
-                ]}
-                onPress={toggleFollow}
-                disabled={!currentUserId || processing}
-              >
-                <Text style={styles.followButtonText}>
-                  {isFollowing ? "Unfollow" : "Follow"}
-                </Text>
-              </TouchableOpacity>
+              <>
+                <TouchableOpacity
+                  style={[
+                    styles.followButton,
+                    (!currentUserId || processing) && styles.followButtonDisabled,
+                  ]}
+                  onPress={toggleFollow}
+                  disabled={!currentUserId || processing}
+                >
+                  <Text style={styles.followButtonText}>
+                    {isFollowing ? "Unfollow" : "Follow"}
+                  </Text>
+                </TouchableOpacity>
+                {isConnected && (
+                  <TouchableOpacity
+                    style={[
+                      styles.removeConnectionButton,
+                      processing && styles.followButtonDisabled,
+                    ]}
+                    onPress={removeConnection}
+                    disabled={processing}
+                  >
+                    <Text style={styles.removeConnectionButtonText}>
+                      Remove Connection
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </>
             )}
           </View>
         </View>
@@ -337,6 +372,17 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     fontSize: 12,
   },
+  connectedBadge: {
+    backgroundColor: "rgba(34, 197, 94, 0.18)",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  connectedBadgeText: {
+    color: "#BBF7D0",
+    fontSize: 12,
+    fontWeight: "800",
+  },
   trustBadge: {
     backgroundColor: "rgba(124, 58, 237, 0.18)",
     paddingHorizontal: 10,
@@ -380,6 +426,7 @@ const styles = StyleSheet.create({
   },
   profileFooter: {
     alignItems: "center",
+    gap: 12,
   },
   followButton: {
     backgroundColor: "#7C3AED",
@@ -394,6 +441,19 @@ const styles = StyleSheet.create({
     color: "white",
     fontWeight: "800",
     fontSize: 15,
+  },
+  removeConnectionButton: {
+    backgroundColor: "rgba(239, 68, 68, 0.14)",
+    borderColor: "rgba(248, 113, 113, 0.26)",
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 24,
+    paddingVertical: 13,
+  },
+  removeConnectionButtonText: {
+    color: "#FECACA",
+    fontSize: 14,
+    fontWeight: "800",
   },
   selfNotice: {
     color: "#A78BFA",
