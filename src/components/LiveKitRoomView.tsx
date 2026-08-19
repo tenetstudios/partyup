@@ -409,7 +409,7 @@ function RoomStreamSurface({
   const isConnected = connectionState === ConnectionState.Connected;
 
   const controls = isConnected && controlsVisible ? (
-    <Animated.View style={{ opacity: controlsOpacity }}>
+    <Animated.View style={[styles.controlsOverlay, { opacity: controlsOpacity }]}>
       <StreamControls
         canPublish={canPublish}
         publishSignal={publishSignal}
@@ -517,15 +517,18 @@ const styles = StyleSheet.create({
   },
 
   controls: {
-  position: "absolute",
-  left: 12,
-  right: 12,
-  top: "38%",
   flexDirection: "row",
   gap: 8,
-  zIndex: 9999,
-  elevation: 9999,
 },
+
+  controlsOverlay: {
+    left: 12,
+    position: "absolute",
+    right: 12,
+    top: "38%",
+    zIndex: 9999,
+    elevation: 9999,
+  },
 
   controlButton: {
     flex: 1,
