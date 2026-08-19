@@ -280,7 +280,14 @@ export default function RoomScreen() {
   const [publishSignal, setPublishSignal] = useState(0);
   const [stopPublishSignal, setStopPublishSignal] = useState(0);
   const [roomDeleted, setRoomDeleted] = useState(false);
+  const chatListRef = useRef<FlatList<any> | null>(null);
   const feedActionsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function scrollChatToLatest(animated = true) {
+    requestAnimationFrame(() => {
+      chatListRef.current?.scrollToEnd({ animated });
+    });
+  }
 
   useEffect(() => {
   loadAll();
@@ -384,6 +391,12 @@ export default function RoomScreen() {
     supabase.removeChannel(channel);
   };
 }, [roomId, roomDeleted]);
+
+  useEffect(() => {
+    if (activeTab === "chat") {
+      scrollChatToLatest();
+    }
+  }, [activeTab, messages.length, activities.length]);
 
   useEffect(
     () => () => {
@@ -1398,6 +1411,7 @@ const requestedStreamers = [
   const chatSection = (
     <View style={[styles.chatPane, !isDesktop && styles.chatPaneMobile]}>
       <FlatList
+        ref={chatListRef}
         data={[
   ...activities.map((activity) => ({
     ...activity,
@@ -1415,6 +1429,12 @@ const requestedStreamers = [
         keyExtractor={(item) => item.id}
         style={styles.chatList}
         contentContainerStyle={styles.chatListContent}
+        keyboardShouldPersistTaps="handled"
+        nestedScrollEnabled
+        onContentSizeChange={() => scrollChatToLatest(false)}
+        onLayout={() => scrollChatToLatest(false)}
+        scrollEnabled
+        showsVerticalScrollIndicator
         renderItem={({ item }: { item: any }) => {
   if (item.isActivity) {
     return (
@@ -2984,7 +3004,7 @@ const styles = StyleSheet.create({
     minHeight: 360,
   },
   chatList: {
-    maxHeight: 150,
+    height: 150,
     marginBottom: 8,
   },
   chatListContent: {
