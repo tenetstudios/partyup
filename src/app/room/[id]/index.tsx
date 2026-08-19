@@ -844,13 +844,24 @@ async function shareRoom() {
   }
 }
 
-function openManageRoom() {
+  function openManageRoom() {
   if (!room) {
     return;
   }
 
   router.push({
     pathname: "/room/[id]/queue",
+    params: { id: room.id },
+  });
+}
+
+function openMemories() {
+  if (!room) {
+    return;
+  }
+
+  router.push({
+    pathname: "/room/[id]/memories",
     params: { id: room.id },
   });
 }
@@ -1369,7 +1380,7 @@ const requestedStreamers = [
       {[
         { key: "chat", label: "Chat", icon: "chatbubble-outline" },
         { key: "people", label: "People", icon: "people-outline" },
-        { key: "queue", label: "Queue", icon: "list-outline" },
+        { key: "memories", label: "Memories", icon: "images-outline" },
       ].map((tab) => {
         const isActive = activeTab === tab.key;
 
@@ -1377,7 +1388,14 @@ const requestedStreamers = [
           <TouchableOpacity
             key={tab.key}
             style={styles.roomTabPill}
-            onPress={() => setActiveTab(tab.key as "chat" | "people" | "queue")}
+            onPress={() => {
+              if (tab.key === "memories") {
+                openMemories();
+                return;
+              }
+
+              setActiveTab(tab.key as "chat" | "people" | "queue");
+            }}
           >
             <View style={styles.roomTabContent}>
               <Ionicons
@@ -1876,20 +1894,11 @@ const requestedStreamers = [
   </TouchableOpacity>
 
   <TouchableOpacity
-    style={[
-      styles.roomTabPill,
-      activeTab === "queue" && styles.roomTabPillActive,
-    ]}
-    onPress={() => setActiveTab("queue")}
+    style={styles.roomTabPill}
+    onPress={openMemories}
   >
-    <Text
-      style={[
-        styles.roomTabPillText,
-        activeTab === "queue" &&
-          styles.roomTabPillTextActive,
-      ]}
-    >
-      Queue
+    <Text style={styles.roomTabPillText}>
+      Memories
     </Text>
   </TouchableOpacity>
 </View>

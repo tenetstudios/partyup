@@ -483,8 +483,8 @@ setTimeout(() => {
   return (
     <ScrollView style={styles.page} contentContainerStyle={styles.container}>
 
-      <Text style={styles.heading}>Manage Room</Text>
-      <Text style={styles.subheading}>{room.title}</Text>
+      <Text style={styles.heading}>Room Settings</Text>
+      <Text style={styles.subheading}>Queue / Stream Requests for {room.title}</Text>
 
       <View style={styles.statsRow}>
   <View style={styles.statCard}>
@@ -538,7 +538,7 @@ setTimeout(() => {
                   : tab === "inside"
                   ? "Inside"
                   : tab === "streams"
-                  ? "Streams"
+                  ? "Requests"
                   : tab === "bouncers"
                   ? "Bouncers"
                   : "Settings"}
@@ -550,7 +550,7 @@ setTimeout(() => {
 
       {activeTab === "queue" && (
         <View>
-          <Text style={styles.sectionTitle}>Waiting Queue</Text>
+          <Text style={styles.sectionTitle}>Queue / Stream Requests</Text>
 
           {queue.length === 0 ? (
             <Text style={styles.empty}>No one is waiting.</Text>
