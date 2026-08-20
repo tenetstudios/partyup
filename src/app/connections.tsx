@@ -1,8 +1,11 @@
 import { Image } from "expo-image";
+import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import {
   Alert,
+  Linking,
+  Modal,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -19,9 +22,18 @@ import {
   removePartyUpConnection,
   type PartyUpConnection,
 } from "../../lib/connections";
+import {
+  formatMemoryDate,
+  formatMemoryTimestamp,
+  getMemoryPublicUrl,
+  getMySavedMemoryGroups,
+  unsaveRoomMemory,
+  type SavedMemory,
+  type SavedMemoryGroup,
+} from "../../lib/memories";
 import { supabase } from "../../lib/supabase";
 
-type SocialTab = "connections" | "following" | "followers";
+type SocialTab = "connections" | "memories" | "following" | "followers";
 
 type ProfileRow = {
   id: string;
@@ -36,6 +48,7 @@ type FollowRow = {
 
 const tabs: { key: SocialTab; label: string }[] = [
   { key: "connections", label: "Connections" },
+  { key: "memories", label: "Memories" },
   { key: "following", label: "Following" },
   { key: "followers", label: "Followers" },
 ];
@@ -52,20 +65,25 @@ export default function ConnectionsScreen() {
   const [activeTab, setActiveTab] = useState<SocialTab>("connections");
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [connections, setConnections] = useState<PartyUpConnection[]>([]);
+  const [memoryGroups, setMemoryGroups] = useState<SavedMemoryGroup[]>([]);
+  const [selectedMemoryGroup, setSelectedMemoryGroup] = useState<SavedMemoryGroup | null>(null);
+  const [selectedMemory, setSelectedMemory] = useState<SavedMemory | null>(null);
   const [following, setFollowing] = useState<ProfileRow[]>([]);
   const [followers, setFollowers] = useState<ProfileRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [unsavingId, setUnsavingId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
   const counts = useMemo(
     () => ({
       connections: connections.length,
+      memories: memoryGroups.reduce((sum, group) => sum + group.memory_count, 0),
       followers: followers.length,
       following: following.length,
     }),
-    [connections.length, followers.length, following.length],
+    [connections.length, followers.length, following.length, memoryGroups],
   );
 
   const loadSocialData = useCallback(async () => {
@@ -79,13 +97,17 @@ export default function ConnectionsScreen() {
 
       if (!user) {
         setConnections([]);
+        setMemoryGroups([]);
+        setSelectedMemoryGroup(null);
+        setSelectedMemory(null);
         setFollowers([]);
         setFollowing([]);
         return;
       }
 
-      const [connectionRows, followingRows, followerRows] = await Promise.all([
+      const [connectionRows, memoryRows, followingRows, followerRows] = await Promise.all([
         getMyConnections(),
+        getMySavedMemoryGroups(),
         supabase
           .from("follows")
           .select("following_id")
@@ -132,6 +154,10 @@ export default function ConnectionsScreen() {
       }
 
       setConnections(connectionRows);
+      setMemoryGroups(memoryRows);
+      setSelectedMemoryGroup((current) =>
+        current ? memoryRows.find((group) => group.room_id === current.room_id) ?? null : null,
+      );
       setFollowing(
         followingIds
           .map((id) => profileMap.get(id))
@@ -203,6 +229,40 @@ export default function ConnectionsScreen() {
     );
   }
 
+  async function removeSavedMemory(memory: SavedMemory) {
+    if (unsavingId) {
+      return;
+    }
+
+    setUnsavingId(memory.id);
+    setMessage(null);
+
+    try {
+      await unsaveRoomMemory(memory.id);
+      const nextGroups = memoryGroups
+        .map((group) => {
+          const memories = group.memories.filter((item) => item.id !== memory.id);
+
+          return {
+            ...group,
+            memories,
+            memory_count: memories.length,
+          };
+        })
+        .filter((group) => group.memories.length > 0);
+
+      setMemoryGroups(nextGroups);
+      setSelectedMemoryGroup((selected) =>
+        selected ? nextGroups.find((group) => group.room_id === selected.room_id) ?? null : null,
+      );
+      setSelectedMemory(null);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not unsave this Memory.");
+    } finally {
+      setUnsavingId(null);
+    }
+  }
+
   function renderActiveTab() {
     if (!currentUserId && !loading) {
       return (
@@ -242,6 +302,22 @@ export default function ConnectionsScreen() {
           onRemove={removeConnection}
         />
       ));
+    }
+
+    if (activeTab === "memories") {
+      return (
+        <ProfileMemories
+          groups={memoryGroups}
+          selectedGroup={selectedMemoryGroup}
+          selectedMemory={selectedMemory}
+          unsavingId={unsavingId}
+          onSelectGroup={setSelectedMemoryGroup}
+          onBackToGroups={() => setSelectedMemoryGroup(null)}
+          onSelectMemory={setSelectedMemory}
+          onCloseMemory={() => setSelectedMemory(null)}
+          onUnsave={(memory) => void removeSavedMemory(memory)}
+        />
+      );
     }
 
     return (
@@ -362,6 +438,217 @@ function ConnectionCard({
         </TouchableOpacity>
       </View>
     </View>
+  );
+}
+
+function ProfileMemories({
+  groups,
+  selectedGroup,
+  selectedMemory,
+  unsavingId,
+  onSelectGroup,
+  onBackToGroups,
+  onSelectMemory,
+  onCloseMemory,
+  onUnsave,
+}: {
+  groups: SavedMemoryGroup[];
+  selectedGroup: SavedMemoryGroup | null;
+  selectedMemory: SavedMemory | null;
+  unsavingId: string | null;
+  onSelectGroup: (group: SavedMemoryGroup) => void;
+  onBackToGroups: () => void;
+  onSelectMemory: (memory: SavedMemory) => void;
+  onCloseMemory: () => void;
+  onUnsave: (memory: SavedMemory) => void;
+}) {
+  if (groups.length === 0) {
+    return (
+      <View style={styles.emptyCard}>
+        <Text style={styles.emptyTitle}>No saved memories yet.</Text>
+        <Text style={styles.emptyText}>
+          Save photos and clips from event rooms and they will appear here.
+        </Text>
+        <TouchableOpacity style={styles.primaryButton} onPress={() => router.push("/rooms")}>
+          <Text style={styles.primaryButtonText}>Explore Rooms</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (selectedGroup) {
+    return (
+      <>
+        <View style={styles.memoryDetailHeader}>
+          <TouchableOpacity onPress={onBackToGroups}>
+            <Text style={styles.back}>Back to Memories</Text>
+          </TouchableOpacity>
+          <Text style={styles.memoryGroupTitle}>{selectedGroup.room_title}</Text>
+          <Text style={styles.memoryGroupDate}>{formatMemoryDate(selectedGroup.room_date)}</Text>
+        </View>
+
+        <View style={styles.memoryGrid}>
+          {selectedGroup.memories.map((memory) => (
+            <SavedMemoryTile
+              key={memory.id}
+              memory={memory}
+              unsaving={unsavingId === memory.id}
+              onSelect={onSelectMemory}
+              onUnsave={onUnsave}
+            />
+          ))}
+        </View>
+
+        <SavedMemoryModal
+          memory={selectedMemory}
+          unsaving={selectedMemory ? unsavingId === selectedMemory.id : false}
+          onClose={onCloseMemory}
+          onUnsave={onUnsave}
+        />
+      </>
+    );
+  }
+
+  return (
+    <>
+      {groups.map((group) => (
+        <TouchableOpacity
+          key={group.room_id}
+          style={styles.memoryGroupCard}
+          activeOpacity={0.86}
+          onPress={() => onSelectGroup(group)}
+        >
+          <View style={styles.memoryGroupHeader}>
+            <View style={styles.memoryGroupText}>
+              <Text style={styles.memoryGroupTitle} numberOfLines={1}>
+                {group.room_title}
+              </Text>
+              <Text style={styles.memoryGroupDate}>{formatMemoryDate(group.room_date)}</Text>
+            </View>
+            <View style={styles.memoryCountPill}>
+              <Text style={styles.memoryCountText}>{group.memory_count}</Text>
+            </View>
+          </View>
+
+          <View style={styles.memoryPreviewRow}>
+            {group.memories.slice(0, 4).map((memory) => (
+              <MemoryPreview key={memory.id} memory={memory} />
+            ))}
+          </View>
+        </TouchableOpacity>
+      ))}
+    </>
+  );
+}
+
+function MemoryPreview({ memory }: { memory: SavedMemory }) {
+  const url = getMemoryPublicUrl(memory.thumbnail_path || memory.media_path);
+
+  if (memory.media_type === "image") {
+    return <Image source={{ uri: url }} style={styles.memoryPreviewImage} />;
+  }
+
+  return (
+    <View style={styles.memoryPreviewVideo}>
+      <Ionicons name="play" size={18} color="#FFFFFF" />
+    </View>
+  );
+}
+
+function SavedMemoryTile({
+  memory,
+  unsaving,
+  onSelect,
+  onUnsave,
+}: {
+  memory: SavedMemory;
+  unsaving: boolean;
+  onSelect: (memory: SavedMemory) => void;
+  onUnsave: (memory: SavedMemory) => void;
+}) {
+  return (
+    <View style={styles.savedMemoryTile}>
+      <TouchableOpacity
+        activeOpacity={0.88}
+        onPress={() => onSelect(memory)}
+        style={styles.savedMemoryMediaButton}
+      >
+        <MemoryPreview memory={memory} />
+      </TouchableOpacity>
+
+      <Text style={styles.savedMemoryTime} numberOfLines={1}>
+        {formatMemoryTimestamp(memory.created_at)}
+      </Text>
+      <TouchableOpacity
+        style={[styles.savedUnsaveButton, unsaving && styles.disabledButton]}
+        onPress={() => onUnsave(memory)}
+        disabled={unsaving}
+      >
+        <Text style={styles.savedUnsaveText}>{unsaving ? "Unsaving..." : "Unsave"}</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function SavedMemoryModal({
+  memory,
+  unsaving,
+  onClose,
+  onUnsave,
+}: {
+  memory: SavedMemory | null;
+  unsaving: boolean;
+  onClose: () => void;
+  onUnsave: (memory: SavedMemory) => void;
+}) {
+  if (!memory) {
+    return null;
+  }
+
+  const publicUrl = getMemoryPublicUrl(memory.media_path);
+
+  return (
+    <Modal animationType="fade" transparent visible onRequestClose={onClose}>
+      <View style={styles.savedViewerBackdrop}>
+        <TouchableOpacity
+          accessibilityLabel="Close Memory"
+          style={styles.savedViewerClose}
+          onPress={onClose}
+        >
+          <Ionicons name="close" size={26} color="#FFFFFF" />
+        </TouchableOpacity>
+
+        {memory.media_type === "image" ? (
+          <Image source={{ uri: publicUrl }} style={styles.savedViewerImage} contentFit="contain" />
+        ) : (
+          <TouchableOpacity
+            style={styles.savedViewerVideo}
+            onPress={() => Linking.openURL(publicUrl)}
+          >
+            <Ionicons name="play-circle" size={62} color="#FFFFFF" />
+            <Text style={styles.savedViewerVideoText}>Play clip</Text>
+          </TouchableOpacity>
+        )}
+
+        <View style={styles.savedViewerMeta}>
+          <View style={styles.viewerMetaText}>
+            <Text style={styles.viewerUploader} numberOfLines={1}>
+              {memory.uploader_name || "Guest"}
+            </Text>
+            <Text style={styles.viewerTime} numberOfLines={1}>
+              {memory.room_title} / {formatMemoryTimestamp(memory.created_at)}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={[styles.savedUnsaveButton, unsaving && styles.disabledButton]}
+            onPress={() => onUnsave(memory)}
+            disabled={unsaving}
+          >
+            <Text style={styles.savedUnsaveText}>{unsaving ? "Unsaving..." : "Unsave"}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -631,6 +918,187 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     marginTop: 4,
+  },
+  memoryGroupCard: {
+    backgroundColor: "#10101A",
+    borderColor: "#242033",
+    borderRadius: 22,
+    borderWidth: 1,
+    padding: 16,
+  },
+  memoryGroupHeader: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 12,
+    justifyContent: "space-between",
+  },
+  memoryGroupText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  memoryGroupTitle: {
+    color: "#FFFFFF",
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  memoryGroupDate: {
+    color: "#A78BFA",
+    fontSize: 13,
+    fontWeight: "800",
+    marginTop: 4,
+  },
+  memoryCountPill: {
+    alignItems: "center",
+    backgroundColor: "rgba(124, 58, 237, 0.28)",
+    borderColor: "rgba(167, 139, 250, 0.28)",
+    borderRadius: 999,
+    borderWidth: 1,
+    minWidth: 38,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  memoryCountText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  memoryPreviewRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 14,
+  },
+  memoryPreviewImage: {
+    aspectRatio: 1,
+    backgroundColor: "#171322",
+    borderRadius: 12,
+    flex: 1,
+    minHeight: 70,
+  },
+  memoryPreviewVideo: {
+    alignItems: "center",
+    aspectRatio: 1,
+    backgroundColor: "#171322",
+    borderRadius: 12,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 70,
+  },
+  memoryDetailHeader: {
+    backgroundColor: "#10101A",
+    borderColor: "#242033",
+    borderRadius: 22,
+    borderWidth: 1,
+    gap: 4,
+    padding: 16,
+  },
+  memoryGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  savedMemoryTile: {
+    backgroundColor: "#10101A",
+    borderColor: "#242033",
+    borderRadius: 18,
+    borderWidth: 1,
+    overflow: "hidden",
+    padding: 8,
+    width: "48%",
+  },
+  savedMemoryMediaButton: {
+    aspectRatio: 1,
+    overflow: "hidden",
+  },
+  savedMemoryTime: {
+    color: "#8F8A9F",
+    fontSize: 11,
+    fontWeight: "800",
+    marginTop: 8,
+  },
+  savedUnsaveButton: {
+    alignItems: "center",
+    backgroundColor: "rgba(239, 68, 68, 0.14)",
+    borderColor: "rgba(248, 113, 113, 0.24)",
+    borderRadius: 999,
+    borderWidth: 1,
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  savedUnsaveText: {
+    color: "#FECACA",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  savedViewerBackdrop: {
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.94)",
+    flex: 1,
+    justifyContent: "center",
+    padding: 16,
+    paddingTop: 56,
+  },
+  savedViewerClose: {
+    alignItems: "center",
+    backgroundColor: "#7C3AED",
+    borderColor: "rgba(255,255,255,0.18)",
+    borderRadius: 22,
+    borderWidth: 1,
+    height: 44,
+    justifyContent: "center",
+    position: "absolute",
+    right: 18,
+    top: 46,
+    width: 44,
+    zIndex: 10,
+  },
+  savedViewerImage: {
+    height: "72%",
+    width: "100%",
+  },
+  savedViewerVideo: {
+    alignItems: "center",
+    backgroundColor: "#11101B",
+    borderColor: "rgba(255,255,255,0.12)",
+    borderRadius: 24,
+    borderWidth: 1,
+    gap: 10,
+    justifyContent: "center",
+    minHeight: 280,
+    width: "100%",
+  },
+  savedViewerVideoText: {
+    color: "#FFFFFF",
+    fontSize: 17,
+    fontWeight: "900",
+  },
+  savedViewerMeta: {
+    alignItems: "center",
+    alignSelf: "stretch",
+    backgroundColor: "#10101A",
+    borderColor: "#242033",
+    borderRadius: 20,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    justifyContent: "space-between",
+    marginTop: 14,
+    padding: 12,
+  },
+  viewerMetaText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  viewerUploader: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  viewerTime: {
+    color: "#B8B2C8",
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 3,
   },
   emptyCard: {
     backgroundColor: "#0D0D16",

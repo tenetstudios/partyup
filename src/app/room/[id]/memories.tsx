@@ -15,6 +15,13 @@ import {
   View,
 } from "react-native";
 import { supabase } from "../../../../lib/supabase";
+import {
+  getMemoryPublicUrl,
+  getRoomMemories,
+  saveRoomMemory,
+  unsaveRoomMemory,
+  type RoomMemory,
+} from "../../../../lib/memories";
 import { ensurePartyUpIdentity } from "../../../lib/matchmaking";
 
 type Room = {
@@ -24,18 +31,6 @@ type Room = {
 };
 
 type MemoryMediaType = "image" | "video";
-
-type RoomMemory = {
-  id: string;
-  room_id: string;
-  uploader_identity_id: string;
-  media_type: MemoryMediaType;
-  media_path: string;
-  thumbnail_path: string | null;
-  created_at: string;
-  uploader_name: string | null;
-  uploader_avatar_url: string | null;
-};
 
 type PendingMemory = {
   asset: ImagePicker.ImagePickerAsset;
@@ -89,19 +84,12 @@ export default function RoomMemoriesScreen() {
   const [pendingMemory, setPendingMemory] = useState<PendingMemory | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [savingMemoryId, setSavingMemoryId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
+  const [selectedMemory, setSelectedMemory] = useState<RoomMemory | null>(null);
 
   const loadMemories = useCallback(async () => {
-    const { data, error: memoriesError } = await supabase.rpc("get_room_memories", {
-      p_room_id: roomId,
-    });
-
-    if (memoriesError) {
-      throw new Error(memoriesError.message);
-    }
-
-    setMemories((data || []) as RoomMemory[]);
+    setMemories(await getRoomMemories(roomId));
   }, [roomId]);
 
   const resolveCurrentIdentity = useCallback(async () => {
@@ -286,8 +274,47 @@ export default function RoomMemoriesScreen() {
     ]);
   }
 
-  function getPublicUrl(path: string) {
-    return supabase.storage.from("room-memories").getPublicUrl(path).data.publicUrl;
+  async function toggleSaved(memory: RoomMemory) {
+    if (savingMemoryId) {
+      return;
+    }
+
+    const { data: sessionData } = await supabase.auth.getSession();
+
+    if (!sessionData.session?.user) {
+      Alert.alert("Sign in required", "Sign in to save Memories to your profile.");
+      return;
+    }
+
+    const nextSaved = !memory.is_saved;
+    setSavingMemoryId(memory.id);
+    setMemories((current) =>
+      current.map((item) => (item.id === memory.id ? { ...item, is_saved: nextSaved } : item)),
+    );
+    setSelectedMemory((current) =>
+      current?.id === memory.id ? { ...current, is_saved: nextSaved } : current,
+    );
+
+    try {
+      if (nextSaved) {
+        await saveRoomMemory(memory.id);
+      } else {
+        await unsaveRoomMemory(memory.id);
+      }
+    } catch (reason) {
+      setMemories((current) =>
+        current.map((item) => (item.id === memory.id ? { ...item, is_saved: !nextSaved } : item)),
+      );
+      setSelectedMemory((current) =>
+        current?.id === memory.id ? { ...current, is_saved: !nextSaved } : current,
+      );
+      Alert.alert(
+        "Save failed",
+        reason instanceof Error ? reason.message : "Could not update this saved Memory.",
+      );
+    } finally {
+      setSavingMemoryId(null);
+    }
   }
 
   const isHost = !!room && room.host_id === currentUserId;
@@ -410,7 +437,7 @@ export default function RoomMemoriesScreen() {
       ) : (
         <View style={styles.grid}>
           {memories.map((memory) => {
-            const publicUrl = getPublicUrl(memory.media_path);
+            const publicUrl = getMemoryPublicUrl(memory.media_path);
             const uploaderName = memory.uploader_name || "Guest";
             const canDelete = isHost || memory.uploader_identity_id === currentIdentityId;
 
@@ -419,14 +446,14 @@ export default function RoomMemoriesScreen() {
                 {memory.media_type === "image" ? (
                   <TouchableOpacity
                     activeOpacity={0.88}
-                    onPress={() => setSelectedImageUrl(publicUrl)}
+                    onPress={() => setSelectedMemory(memory)}
                   >
                     <Image source={{ uri: publicUrl }} style={styles.memoryImage} />
                   </TouchableOpacity>
                 ) : (
                   <TouchableOpacity
                     style={styles.videoTile}
-                    onPress={() => Linking.openURL(publicUrl)}
+                    onPress={() => setSelectedMemory(memory)}
                   >
                     <Ionicons name="play-circle" size={42} color="#FFFFFF" />
                     <Text style={styles.videoTileText}>Play clip</Text>
@@ -470,24 +497,64 @@ export default function RoomMemoriesScreen() {
       <Modal
         animationType="fade"
         transparent
-        visible={!!selectedImageUrl}
-        onRequestClose={() => setSelectedImageUrl(null)}
+        visible={!!selectedMemory}
+        onRequestClose={() => setSelectedMemory(null)}
       >
         <View style={styles.imageViewerBackdrop}>
           <TouchableOpacity
-            accessibilityLabel="Close image"
+            accessibilityLabel="Close Memory"
             style={styles.imageViewerClose}
-            onPress={() => setSelectedImageUrl(null)}
+            onPress={() => setSelectedMemory(null)}
           >
             <Ionicons name="close" size={26} color="#FFFFFF" />
           </TouchableOpacity>
 
-          {selectedImageUrl && (
-            <Image
-              source={{ uri: selectedImageUrl }}
-              style={styles.imageViewerImage}
-              resizeMode="contain"
-            />
+          {selectedMemory && (
+            <>
+              {selectedMemory.media_type === "image" ? (
+                <Image
+                  source={{ uri: getMemoryPublicUrl(selectedMemory.media_path) }}
+                  style={styles.imageViewerImage}
+                  resizeMode="contain"
+                />
+              ) : (
+                <TouchableOpacity
+                  style={styles.videoViewerPanel}
+                  onPress={() => Linking.openURL(getMemoryPublicUrl(selectedMemory.media_path))}
+                >
+                  <Ionicons name="play-circle" size={62} color="#FFFFFF" />
+                  <Text style={styles.videoViewerTitle}>Play clip</Text>
+                </TouchableOpacity>
+              )}
+
+              <View style={styles.viewerMetaCard}>
+                <View style={styles.viewerMetaText}>
+                  <Text style={styles.viewerUploader} numberOfLines={1}>
+                    {selectedMemory.uploader_name || "Guest"}
+                  </Text>
+                  <Text style={styles.viewerTime}>{formatMemoryTime(selectedMemory.created_at)}</Text>
+                </View>
+
+                <TouchableOpacity
+                  style={[
+                    styles.saveButton,
+                    selectedMemory.is_saved && styles.saveButtonActive,
+                    savingMemoryId === selectedMemory.id && styles.buttonDisabled,
+                  ]}
+                  onPress={() => toggleSaved(selectedMemory)}
+                  disabled={savingMemoryId === selectedMemory.id}
+                >
+                  <Ionicons
+                    name={selectedMemory.is_saved ? "bookmark" : "bookmark-outline"}
+                    size={17}
+                    color="#FFFFFF"
+                  />
+                  <Text style={styles.saveButtonText}>
+                    {selectedMemory.is_saved ? "Saved" : "Save"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </>
           )}
         </View>
       </Modal>
@@ -781,5 +848,69 @@ const styles = StyleSheet.create({
   imageViewerImage: {
     height: "86%",
     width: "100%",
+  },
+  videoViewerPanel: {
+    alignItems: "center",
+    backgroundColor: "#11101B",
+    borderColor: "rgba(255,255,255,0.12)",
+    borderRadius: 24,
+    borderWidth: 1,
+    gap: 10,
+    justifyContent: "center",
+    minHeight: 280,
+    width: "100%",
+  },
+  videoViewerTitle: {
+    color: "#FFFFFF",
+    fontSize: 17,
+    fontWeight: "900",
+  },
+  viewerMetaCard: {
+    alignItems: "center",
+    alignSelf: "stretch",
+    backgroundColor: "rgba(17,16,27,0.96)",
+    borderColor: "rgba(255,255,255,0.1)",
+    borderRadius: 20,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    justifyContent: "space-between",
+    marginTop: 14,
+    padding: 12,
+  },
+  viewerMetaText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  viewerUploader: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  viewerTime: {
+    color: "#B8B2C8",
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 3,
+  },
+  saveButton: {
+    alignItems: "center",
+    backgroundColor: "rgba(124,58,237,0.34)",
+    borderColor: "rgba(196,181,253,0.28)",
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 7,
+    minHeight: 42,
+    paddingHorizontal: 14,
+  },
+  saveButtonActive: {
+    backgroundColor: "#7C3AED",
+    borderColor: "#A78BFA",
+  },
+  saveButtonText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "900",
   },
 });
