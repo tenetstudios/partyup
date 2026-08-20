@@ -1,19 +1,26 @@
 import { Image } from "expo-image";
+import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import { router, useFocusEffect } from "expo-router";
 import type { AndroidSymbol, SFSymbol, SymbolViewProps } from "expo-symbols";
 import { SymbolView } from "expo-symbols";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import Slider from "@react-native-community/slider";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  Animated,
   FlatList,
   ImageBackground,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -22,6 +29,9 @@ import { supabase } from "../../lib/supabase";
 type RoomType = "party" | "concert" | "dj_set" | "popup" | "sports" | "watch_party";
 type RoomMode = "irl" | "livestream" | "hybrid";
 type RoomStatusType = "scheduled" | "live" | "ended";
+type CreateRoomStatus = "scheduled" | "live";
+type TimePeriod = "AM" | "PM";
+type CreateRoomStep = 0 | 1 | 2 | 3;
 
 type Room = {
   id: string;
@@ -63,6 +73,7 @@ const ICONS = {
   bell: makeIcon("bell", "notifications"),
   bolt: makeIcon("bolt", "bolt"),
   checkmark: makeIcon("checkmark", "check"),
+  chevronLeft: makeIcon("chevron.left", "chevron_left"),
   chevronRight: makeIcon("chevron.right", "chevron_right"),
   crown: makeIcon("crown", "crown"),
   flame: makeIcon("flame", "local_fire_department"),
@@ -112,11 +123,8 @@ const ROOM_MODES: { value: RoomMode; label: string }[] = [
   { value: "hybrid", label: "Hybrid" },
 ];
 
-const ROOM_STATUSES: { value: RoomStatusType; label: string }[] = [
-  { value: "scheduled", label: "Scheduled" },
-  { value: "live", label: "Live" },
-  { value: "ended", label: "Ended" },
-];
+const CREATE_ROOM_STEPS = ["Basics", "When", "Details", "Review"];
+const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 
 const TRENDING_SEARCHES = [
   "Debate",
@@ -147,6 +155,72 @@ const ROOM_BACKDROPS = [
 
 function showAlert(message: string) {
   Alert.alert("PartyUp", message);
+}
+
+function pad(value: number) {
+  return value.toString().padStart(2, "0");
+}
+
+function toDateValue(date: Date) {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function getDefaultSchedule() {
+  const date = new Date();
+  const currentHour = date.getHours();
+  const defaultHour = currentHour >= 22 ? 20 : 21;
+
+  if (currentHour >= 22) {
+    date.setDate(date.getDate() + 1);
+  }
+
+  return {
+    date: toDateValue(date),
+    hour: defaultHour > 12 ? defaultHour - 12 : defaultHour,
+    minute: 0,
+    month: new Date(date.getFullYear(), date.getMonth(), 1),
+    period: (defaultHour >= 12 ? "PM" : "AM") as TimePeriod,
+  };
+}
+
+function getCalendarDays(month: Date) {
+  const firstDay = new Date(month.getFullYear(), month.getMonth(), 1);
+  const lastDay = new Date(month.getFullYear(), month.getMonth() + 1, 0);
+  const days: (Date | null)[] = Array.from({ length: firstDay.getDay() }, () => null);
+
+  for (let day = 1; day <= lastDay.getDate(); day += 1) {
+    days.push(new Date(month.getFullYear(), month.getMonth(), day));
+  }
+
+  while (days.length % 7 !== 0) {
+    days.push(null);
+  }
+
+  return days;
+}
+
+function getTwentyFourHour(hour: number, period: TimePeriod) {
+  if (period === "AM") {
+    return hour === 12 ? 0 : hour;
+  }
+
+  return hour === 12 ? 12 : hour + 12;
+}
+
+function getScheduledAt(dateValue: string, hour: number, minute: number, period: TimePeriod) {
+  const [year, month, day] = dateValue.split("-").map(Number);
+
+  return new Date(year, month - 1, day, getTwentyFourHour(hour, period), minute).toISOString();
+}
+
+function formatScheduledDate(dateValue: string) {
+  const [year, month, day] = dateValue.split("-").map(Number);
+
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  }).format(new Date(year, month - 1, day));
 }
 
 function getRoomScore(room: Room) {
@@ -204,6 +278,8 @@ function Icon({
 
 export default function Home() {
   const insets = useSafeAreaInsets();
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
+  const createRoomTranslateX = useRef(new Animated.Value(0)).current;
   const [rooms, setRooms] = useState<Room[]>([]);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [title, setTitle] = useState("");
@@ -211,8 +287,15 @@ export default function Home() {
   const [maxUsers, setMaxUsers] = useState("12");
   const [roomType, setRoomType] = useState<RoomType>("party");
   const [roomMode, setRoomMode] = useState<RoomMode>("livestream");
-  const [roomStatus, setRoomStatus] = useState<RoomStatusType>("live");
+  const [roomStatus, setRoomStatus] = useState<CreateRoomStatus>("live");
   const [venueName, setVenueName] = useState("");
+  const [coverImageUri, setCoverImageUri] = useState<string | null>(null);
+  const [currentCreateStep, setCurrentCreateStep] = useState<CreateRoomStep>(0);
+  const [scheduledDate, setScheduledDate] = useState(() => getDefaultSchedule().date);
+  const [scheduledHour, setScheduledHour] = useState(() => getDefaultSchedule().hour);
+  const [scheduledMinute, setScheduledMinute] = useState(() => getDefaultSchedule().minute);
+  const [scheduledPeriod, setScheduledPeriod] = useState<TimePeriod>(() => getDefaultSchedule().period);
+  const [calendarMonth, setCalendarMonth] = useState(() => getDefaultSchedule().month);
   const [currentLocation, setCurrentLocation] = useState<{
     latitude: number;
     longitude: number;
@@ -227,9 +310,17 @@ export default function Home() {
       setCurrentLocation(null);
     }
   }, [showCreateSheet]);
+
+  useEffect(() => {
+    Animated.timing(createRoomTranslateX, {
+      duration: 260,
+      toValue: -currentCreateStep * windowWidth,
+      useNativeDriver: true,
+    }).start();
+  }, [createRoomTranslateX, currentCreateStep, windowWidth]);
+
   const [searchText, setSearchText] = useState("");
   const [isPrivateRoom, setIsPrivateRoom] = useState(false);
-  const [selectedVibes, setSelectedVibes] = useState<string[]>([]);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
      const hour = new Date().getHours();
     const greeting =
@@ -558,84 +649,200 @@ async function syncRoomCounts(roomId: string) {
     }
   }
 
+  function resetSchedule() {
+    const schedule = getDefaultSchedule();
+
+    setScheduledDate(schedule.date);
+    setScheduledHour(schedule.hour);
+    setScheduledMinute(schedule.minute);
+    setScheduledPeriod(schedule.period);
+    setCalendarMonth(schedule.month);
+  }
+
+  function openCreateRoom() {
+    setRoomStatus("live");
+    setCurrentCreateStep(0);
+    createRoomTranslateX.setValue(0);
+    setShowCreateSheet(true);
+  }
+
+  function closeCreateRoom() {
+    if (loading) return;
+
+    setShowCreateSheet(false);
+    setCurrentCreateStep(0);
+  }
+
+  function goToNextCreateStep() {
+    if (currentCreateStep === 0 && !title.trim()) {
+      showAlert("Enter a room name");
+      return;
+    }
+
+    if (
+      currentCreateStep === 1 &&
+      roomStatus === "scheduled" &&
+      new Date(getScheduledAt(scheduledDate, scheduledHour, scheduledMinute, scheduledPeriod)) <= new Date()
+    ) {
+      showAlert("Choose a time in the future.");
+      return;
+    }
+
+    setCurrentCreateStep((step) => Math.min(step + 1, 3) as CreateRoomStep);
+  }
+
+  function goToPreviousCreateStep() {
+    setCurrentCreateStep((step) => Math.max(step - 1, 0) as CreateRoomStep);
+  }
+
+  function adjustCapacity(change: number) {
+    const currentCapacity = Number(maxUsers) || 12;
+    setMaxUsers(String(Math.min(100, Math.max(2, currentCapacity + change))));
+  }
+
+  async function pickCoverImage() {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (status !== "granted") {
+      showAlert("Photo access is required to choose a room cover.");
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [16, 9],
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets?.[0]?.uri) {
+      setCoverImageUri(result.assets[0].uri);
+    }
+  }
+
   async function createRoom() {
-  if (loading) return;
+    if (loading) return;
 
-  if (!title.trim()) {
-    showAlert("Enter a room name");
-    return;
-  }
+    if (!title.trim()) {
+      showAlert("Enter a room name");
+      setCurrentCreateStep(0);
+      return;
+    }
 
-  setLoading(true);
+    if (
+      roomStatus === "scheduled" &&
+      new Date(getScheduledAt(scheduledDate, scheduledHour, scheduledMinute, scheduledPeriod)) <= new Date()
+    ) {
+      showAlert("Choose a time in the future.");
+      setCurrentCreateStep(1);
+      return;
+    }
 
-  const { data: userData } = await supabase.auth.getUser();
-  const user = userData.user;
+    setLoading(true);
 
-  if (!user) {
-    setLoading(false);
-    showAlert("You need to sign in first.");
-    return;
-  }
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const user = userData.user;
 
-  const { data: insertedRoom, error: roomError } = await supabase
-    .from("event_rooms")
-    .insert({
-      title: title.trim(),
-      host_id: user.id,
-      current_users: 0,
-      queue_count: 0,
-      max_users: Number(maxUsers) || 12,
-      is_private: isPrivateRoom,
-      type: roomType,
-      mode: roomMode,
-      status: roomStatus,
-      venue_name: venueName.trim() || null,
-      latitude: currentLocation?.latitude ?? null,
-      longitude: currentLocation?.longitude ?? null,
-      last_active_at: new Date().toISOString(),
-    })
-    .select("id")
-    .single();
-
-  if (roomError || !insertedRoom?.id) {
-    setLoading(false);
-    showAlert(roomError?.message || "Room could not be created.");
-    return;
-  }
-
-  const { error: attendeeError } = await supabase
-    .from("event_attendees")
-    .upsert(
-      {
-        event_room_id: insertedRoom.id,
-        user_id: user.id,
-        username: profile?.username || "Host",
-        avatar_url: profile?.avatar_url || "",
-        status: "accepted",
-        can_stream: true,
-        stream_status: "off",
-      },
-      {
-        onConflict: "event_room_id,user_id",
+      if (!user) {
+        showAlert("You need to sign in first.");
+        return;
       }
-    );
 
-  if (attendeeError) {
-    setLoading(false);
-    showAlert(attendeeError.message);
-    return;
+      let coverImage: string | null = null;
+
+      if (coverImageUri) {
+        const fileExt = coverImageUri.split(".").pop()?.split("?")[0] || "jpg";
+        const filePath = `${user.id}/room_${Date.now()}.${fileExt}`;
+        const response = await fetch(coverImageUri);
+        const arrayBuffer = await response.arrayBuffer();
+        const { error: uploadError } = await supabase.storage
+          .from("event-images")
+          .upload(filePath, arrayBuffer, {
+            contentType: `image/${fileExt === "png" ? "png" : "jpeg"}`,
+            upsert: false,
+          });
+
+        if (uploadError) {
+          showAlert(uploadError.message);
+          return;
+        }
+
+        coverImage = supabase.storage.from("event-images").getPublicUrl(filePath).data.publicUrl;
+      }
+
+      const { data: insertedRoom, error: roomError } = await supabase
+        .from("event_rooms")
+        .insert({
+          title: title.trim(),
+          host_id: user.id,
+          cover_image: coverImage,
+          current_users: 0,
+          queue_count: 0,
+          max_users: Number(maxUsers) || 12,
+          is_private: isPrivateRoom,
+          type: roomType,
+          mode: roomMode,
+          status: roomStatus,
+          scheduled_at:
+            roomStatus === "scheduled"
+              ? getScheduledAt(scheduledDate, scheduledHour, scheduledMinute, scheduledPeriod)
+              : null,
+          venue_name: roomMode === "livestream" ? null : venueName.trim() || null,
+          latitude: roomMode === "livestream" ? null : currentLocation?.latitude ?? null,
+          longitude: roomMode === "livestream" ? null : currentLocation?.longitude ?? null,
+          last_active_at: new Date().toISOString(),
+        })
+        .select("id")
+        .single();
+
+      if (roomError || !insertedRoom?.id) {
+        showAlert(roomError?.message || "Room could not be created.");
+        return;
+      }
+
+      const { error: attendeeError } = await supabase.from("event_attendees").upsert(
+        {
+          event_room_id: insertedRoom.id,
+          user_id: user.id,
+          username: profile?.username || "Host",
+          avatar_url: profile?.avatar_url || "",
+          status: "accepted",
+          can_stream: true,
+          stream_status: "off",
+        },
+        {
+          onConflict: "event_room_id,user_id",
+        }
+      );
+
+      if (attendeeError) {
+        showAlert(attendeeError.message);
+        return;
+      }
+
+      await syncRoomCounts(insertedRoom.id);
+
+      setTitle("");
+      setMaxUsers("12");
+      setRoomType("party");
+      setRoomMode("livestream");
+      setRoomStatus("live");
+      setVenueName("");
+      setCoverImageUri(null);
+      setCurrentLocation(null);
+      setIsPrivateRoom(false);
+      setCurrentCreateStep(0);
+      resetSchedule();
+      setShowCreateSheet(false);
+
+      router.push(`/room/${insertedRoom.id}`);
+    } catch (error) {
+      showAlert(error instanceof Error ? error.message : "Room could not be created.");
+    } finally {
+      setLoading(false);
+    }
   }
-
-  await syncRoomCounts(insertedRoom.id);
-
-  setTitle("");
-  setSelectedVibes([]);
-  setCurrentLocation(null);
-  setShowCreateSheet(false);
-  setLoading(false);
-
-  router.push(`/room/${insertedRoom.id}`);
-}
 
   async function joinQueue(room: Room) {
     const { data: userData } = await supabase.auth.getUser();
@@ -842,6 +1049,14 @@ async function syncRoomCounts(roomId: string) {
       </View>
     );
   }
+
+  const calendarDays = getCalendarDays(calendarMonth);
+  const todayValue = toDateValue(new Date());
+  const scheduledTimeLabel = `${scheduledHour}:${pad(scheduledMinute)} ${scheduledPeriod}`;
+  const scheduledLabel = `${formatScheduledDate(scheduledDate)} at ${scheduledTimeLabel}`;
+  const compactCreateRoom = windowHeight < 760;
+  const selectedRoomTypeLabel = ROOM_TYPES.find((option) => option.value === roomType)?.label || "Party";
+  const selectedRoomModeLabel = ROOM_MODES.find((option) => option.value === roomMode)?.label || "Livestream";
 
   return (
     <View style={styles.page}>
@@ -1062,7 +1277,7 @@ async function syncRoomCounts(roomId: string) {
   </Text>
 </TouchableOpacity>
 
-        <TouchableOpacity style={styles.createFab} onPress={() => setShowCreateSheet(true)}>
+        <TouchableOpacity style={styles.createFab} onPress={openCreateRoom}>
           <Icon name="plus" size={34} color="#FFFFFF" />
         </TouchableOpacity>
 
@@ -1097,241 +1312,476 @@ async function syncRoomCounts(roomId: string) {
         </TouchableOpacity>
       </View>
 
-      <Modal transparent visible={showCreateSheet} animationType="fade">
-        <View style={styles.modalBackdrop}>
-          <ScrollView
-  style={styles.createSheet}
-  contentContainerStyle={{
-    paddingBottom: 140,
-  }}
-  showsVerticalScrollIndicator={true}
-  keyboardShouldPersistTaps="handled"
->
-            <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>Create Room</Text>
-              <TouchableOpacity style={styles.closeButton} onPress={() => setShowCreateSheet(false)}>
+      <Modal
+        visible={showCreateSheet}
+        animationType="fade"
+        presentationStyle="fullScreen"
+        onRequestClose={closeCreateRoom}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={styles.createRoomModal}
+        >
+          <View style={[styles.createRoomHeader, { paddingTop: Math.max(insets.top, 16) }]}>
+            <View style={styles.createRoomTitleRow}>
+              <View>
+                <Text style={styles.createRoomBrand}>PARTYUP</Text>
+                <Text style={styles.createRoomTitle}>Open a Room</Text>
+              </View>
+              <TouchableOpacity
+                accessibilityLabel="Close room creator"
+                style={styles.createRoomCloseButton}
+                onPress={closeCreateRoom}
+                disabled={loading}
+              >
                 <Icon name="xmark" size={20} color="#FFFFFF" />
               </TouchableOpacity>
             </View>
 
-            <TextInput
-              value={title}
-              onChangeText={setTitle}
-              placeholder="Room name"
-              placeholderTextColor="#7F778D"
-              style={styles.input}
-            />
+            <View style={styles.createRoomProgressRow}>
+              {CREATE_ROOM_STEPS.map((step, index) => (
+                <View
+                  key={step}
+                  style={[
+                    styles.createRoomProgressTrack,
+                    index <= currentCreateStep && styles.createRoomProgressTrackActive,
+                  ]}
+                />
+              ))}
+            </View>
+            <View style={styles.createRoomStepRow}>
+              <Text style={styles.createRoomStepName}>{CREATE_ROOM_STEPS[currentCreateStep]}</Text>
+              <Text style={styles.createRoomStepCount}>{currentCreateStep + 1} / 4</Text>
+            </View>
+          </View>
 
-            <TextInput
-              value={maxUsers}
-              onChangeText={setMaxUsers}
-              placeholder="Max people"
-              placeholderTextColor="#7F778D"
-              keyboardType="numeric"
-              style={styles.input}
-            />
-
-            <TextInput
-              value={venueName}
-              onChangeText={setVenueName}
-              placeholder="Venue or location"
-              placeholderTextColor="#7F778D"
-              style={styles.input}
-            />
-
-            <TouchableOpacity
-              style={styles.locationButton}
-              onPress={handleUseCurrentLocation}
-              disabled={currentLocationLoading}
+          <View style={styles.createRoomViewport}>
+            <Animated.View
+              style={[
+                styles.createRoomPages,
+                {
+                  width: windowWidth * CREATE_ROOM_STEPS.length,
+                  transform: [{ translateX: createRoomTranslateX }],
+                },
+              ]}
             >
-              <Text style={styles.locationButtonText}>
-                {currentLocationLoading
-                  ? "Checking location..."
-                  : "Use Current Location"}
+              <View style={[styles.createRoomPage, { width: windowWidth }]}>
+                <View style={styles.createRoomPageIntro}>
+                  <Text style={styles.createRoomPageTitle}>Room basics</Text>
+                </View>
+
+                <View>
+                  <Text style={styles.createRoomFieldLabel}>Room name</Text>
+                  <TextInput
+                    value={title}
+                    onChangeText={setTitle}
+                    placeholder="Late night party room"
+                    placeholderTextColor="#756D82"
+                    style={styles.createRoomInput}
+                    returnKeyType="done"
+                  />
+                </View>
+
+                <View>
+                  <Text style={styles.createRoomFieldLabel}>Event type</Text>
+                  <View style={styles.createRoomTypeGrid}>
+                    {ROOM_TYPES.map((option) => (
+                      <TouchableOpacity
+                        key={option.value}
+                        style={[
+                          styles.createRoomTypeOption,
+                          roomType === option.value && styles.createRoomOptionActive,
+                        ]}
+                        onPress={() => setRoomType(option.value)}
+                      >
+                        <Text
+                          style={[
+                            styles.createRoomOptionText,
+                            roomType === option.value && styles.createRoomOptionTextActive,
+                          ]}
+                        >
+                          {option.label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+
+                <View>
+                  <Text style={styles.createRoomFieldLabel}>Mode</Text>
+                  <View style={styles.createRoomSegmentedControl}>
+                    {ROOM_MODES.map((option) => (
+                      <TouchableOpacity
+                        key={option.value}
+                        style={[
+                          styles.createRoomSegment,
+                          roomMode === option.value && styles.createRoomSegmentActive,
+                        ]}
+                        onPress={() => setRoomMode(option.value)}
+                      >
+                        <Text
+                          style={[
+                            styles.createRoomSegmentText,
+                            roomMode === option.value && styles.createRoomOptionTextActive,
+                          ]}
+                        >
+                          {option.label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              </View>
+
+              <View
+                style={[
+                  styles.createRoomPage,
+                  styles.createRoomWhenPage,
+                  compactCreateRoom && styles.createRoomPageCompact,
+                  { width: windowWidth },
+                ]}
+              >
+                <View style={styles.createRoomPageIntro}>
+                  <Text style={styles.createRoomPageTitle}>When is it happening?</Text>
+                </View>
+
+                <View style={styles.createRoomSegmentedControl}>
+                  {(["live", "scheduled"] as CreateRoomStatus[]).map((status) => (
+                    <TouchableOpacity
+                      key={status}
+                      style={[
+                        styles.createRoomSegment,
+                        roomStatus === status && styles.createRoomSegmentActive,
+                      ]}
+                      onPress={() => setRoomStatus(status)}
+                    >
+                      <Text
+                        style={[
+                          styles.createRoomSegmentText,
+                          roomStatus === status && styles.createRoomOptionTextActive,
+                        ]}
+                      >
+                        {status === "live" ? "Live now" : "Schedule"}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                {roomStatus === "live" ? (
+                  <View style={styles.createRoomLivePanel}>
+                    <View style={styles.createRoomLiveDot} />
+                    <View style={styles.createRoomLiveCopy}>
+                      <Text style={styles.createRoomLiveTitle}>Ready when you are</Text>
+                      <Text style={styles.createRoomLiveText}>The room opens as soon as you finish creating it.</Text>
+                    </View>
+                  </View>
+                ) : (
+                  <View style={styles.createRoomScheduleContent}>
+                    <View style={styles.createRoomCalendar}>
+                      <View style={styles.createRoomCalendarHeader}>
+                        <TouchableOpacity
+                          accessibilityLabel="Previous month"
+                          style={styles.createRoomCalendarArrow}
+                          onPress={() =>
+                            setCalendarMonth(
+                              (month) => new Date(month.getFullYear(), month.getMonth() - 1, 1)
+                            )
+                          }
+                        >
+                          <Icon name="chevronLeft" size={17} color="#D6C8E8" />
+                        </TouchableOpacity>
+                        <Text style={styles.createRoomCalendarMonth}>
+                          {new Intl.DateTimeFormat(undefined, {
+                            month: "long",
+                            year: "numeric",
+                          }).format(calendarMonth)}
+                        </Text>
+                        <TouchableOpacity
+                          accessibilityLabel="Next month"
+                          style={styles.createRoomCalendarArrow}
+                          onPress={() =>
+                            setCalendarMonth(
+                              (month) => new Date(month.getFullYear(), month.getMonth() + 1, 1)
+                            )
+                          }
+                        >
+                          <Icon name="chevronRight" size={17} color="#D6C8E8" />
+                        </TouchableOpacity>
+                      </View>
+                      <View style={styles.createRoomCalendarGrid}>
+                        {WEEKDAYS.map((day, index) => (
+                          <Text key={`${day}-${index}`} style={styles.createRoomWeekday}>{day}</Text>
+                        ))}
+                        {calendarDays.map((day, index) => {
+                          const dateValue = day ? toDateValue(day) : "";
+                          const selected = dateValue === scheduledDate;
+                          const disabled = !day || dateValue < todayValue;
+
+                          return (
+                            <TouchableOpacity
+                              key={day ? dateValue : `blank-${index}`}
+                              disabled={disabled}
+                              hitSlop={4}
+                              style={[
+                                styles.createRoomCalendarDay,
+                                compactCreateRoom && styles.createRoomCalendarDayCompact,
+                                selected && styles.createRoomCalendarDayActive,
+                              ]}
+                              onPress={() => day && setScheduledDate(dateValue)}
+                            >
+                              <Text
+                                style={[
+                                  styles.createRoomCalendarDayText,
+                                  disabled && styles.createRoomCalendarDayTextDisabled,
+                                  selected && styles.createRoomOptionTextActive,
+                                ]}
+                              >
+                                {day?.getDate() || ""}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </View>
+
+                    <View style={styles.createRoomTimePanel}>
+                      <View style={styles.createRoomTimeHeader}>
+                        <Text style={styles.createRoomFieldLabel}>Time</Text>
+                        <Text style={styles.createRoomTimeValue}>{scheduledTimeLabel}</Text>
+                      </View>
+                      <View style={styles.createRoomSliderRow}>
+                        <Text style={styles.createRoomSliderLabel}>Hour</Text>
+                        <Slider
+                          style={styles.createRoomSlider}
+                          minimumValue={1}
+                          maximumValue={12}
+                          step={1}
+                          value={scheduledHour}
+                          onValueChange={setScheduledHour}
+                          minimumTrackTintColor="#9146FF"
+                          maximumTrackTintColor="#3B3347"
+                          thumbTintColor="#C899FF"
+                        />
+                        <Text style={styles.createRoomSliderValue}>{scheduledHour}</Text>
+                      </View>
+                      <View style={styles.createRoomSliderRow}>
+                        <Text style={styles.createRoomSliderLabel}>Min</Text>
+                        <Slider
+                          style={styles.createRoomSlider}
+                          minimumValue={0}
+                          maximumValue={55}
+                          step={5}
+                          value={scheduledMinute}
+                          onValueChange={setScheduledMinute}
+                          minimumTrackTintColor="#9146FF"
+                          maximumTrackTintColor="#3B3347"
+                          thumbTintColor="#C899FF"
+                        />
+                        <Text style={styles.createRoomSliderValue}>{pad(scheduledMinute)}</Text>
+                      </View>
+                      <View style={styles.createRoomPeriodControl}>
+                        {(["AM", "PM"] as TimePeriod[]).map((period) => (
+                          <TouchableOpacity
+                            key={period}
+                            style={[
+                              styles.createRoomPeriodOption,
+                              scheduledPeriod === period && styles.createRoomSegmentActive,
+                            ]}
+                            onPress={() => setScheduledPeriod(period)}
+                          >
+                            <Text
+                              style={[
+                                styles.createRoomSegmentText,
+                                scheduledPeriod === period && styles.createRoomOptionTextActive,
+                              ]}
+                            >
+                              {period}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+                  </View>
+                )}
+              </View>
+
+              <View
+                style={[
+                  styles.createRoomPage,
+                  compactCreateRoom && styles.createRoomPageCompact,
+                  { width: windowWidth },
+                ]}
+              >
+                <View style={styles.createRoomPageIntro}>
+                  <Text style={styles.createRoomPageTitle}>Room details</Text>
+                </View>
+
+                <View style={styles.createRoomSettingRow}>
+                  <View>
+                    <Text style={styles.createRoomSettingTitle}>Capacity</Text>
+                    <Text style={styles.createRoomSettingHint}>Maximum number of people</Text>
+                  </View>
+                  <View style={styles.createRoomStepper}>
+                    <TouchableOpacity
+                      accessibilityLabel="Decrease capacity"
+                      style={styles.createRoomStepperButton}
+                      onPress={() => adjustCapacity(-1)}
+                    >
+                      <Text style={styles.createRoomStepperSymbol}>-</Text>
+                    </TouchableOpacity>
+                    <Text style={styles.createRoomStepperValue}>{maxUsers}</Text>
+                    <TouchableOpacity
+                      accessibilityLabel="Increase capacity"
+                      style={styles.createRoomStepperButton}
+                      onPress={() => adjustCapacity(1)}
+                    >
+                      <Icon name="plus" size={17} color="#FFFFFF" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {roomMode !== "livestream" && (
+                  <View style={styles.createRoomLocationBlock}>
+                    <Text style={styles.createRoomFieldLabel}>Venue</Text>
+                    <TextInput
+                      value={venueName}
+                      onChangeText={setVenueName}
+                      placeholder="Venue or location"
+                      placeholderTextColor="#756D82"
+                      style={styles.createRoomInput}
+                    />
+                    <TouchableOpacity
+                      style={[
+                        styles.createRoomSecondaryButton,
+                        currentLocation && styles.createRoomSecondaryButtonActive,
+                      ]}
+                      onPress={handleUseCurrentLocation}
+                      disabled={currentLocationLoading}
+                    >
+                      <Text style={styles.createRoomSecondaryButtonText}>
+                        {currentLocationLoading
+                          ? "Checking location..."
+                          : currentLocation
+                            ? "Current location added"
+                            : "Use Current Location"}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                <TouchableOpacity style={styles.createRoomCoverRow} onPress={pickCoverImage}>
+                  {coverImageUri ? (
+                    <Image source={{ uri: coverImageUri }} style={styles.createRoomCoverPreview} contentFit="cover" />
+                  ) : (
+                    <View style={styles.createRoomCoverPlaceholder}>
+                      <Icon name="plus" size={20} color="#C899FF" />
+                    </View>
+                  )}
+                  <View style={styles.createRoomCoverCopy}>
+                    <Text style={styles.createRoomSettingTitle}>Cover image</Text>
+                    <Text style={styles.createRoomSettingHint}>
+                      {coverImageUri ? "Tap to replace" : "Optional"}
+                    </Text>
+                  </View>
+                  <Icon name="chevronRight" size={18} color="#71697D" />
+                </TouchableOpacity>
+
+                <View style={styles.createRoomSettingRow}>
+                  <View style={styles.createRoomPrivacyCopy}>
+                    <Text style={styles.createRoomSettingTitle}>Private room</Text>
+                    <Text style={styles.createRoomSettingHint}>Only invited people can discover it.</Text>
+                  </View>
+                  <Switch
+                    value={isPrivateRoom}
+                    onValueChange={setIsPrivateRoom}
+                    trackColor={{ false: "#3B3347", true: "#7440B8" }}
+                    thumbColor={isPrivateRoom ? "#D8B4FE" : "#A59CAC"}
+                  />
+                </View>
+              </View>
+
+              <View
+                style={[
+                  styles.createRoomPage,
+                  styles.createRoomReviewPage,
+                  compactCreateRoom && styles.createRoomPageCompact,
+                  { width: windowWidth },
+                ]}
+              >
+                <View style={styles.createRoomPageIntro}>
+                  <Text style={styles.createRoomPageTitle}>Review</Text>
+                </View>
+
+                <View style={styles.createRoomReviewHero}>
+                  {coverImageUri && (
+                    <Image source={{ uri: coverImageUri }} style={styles.createRoomReviewCover} contentFit="cover" />
+                  )}
+                  <View style={styles.createRoomReviewHeroCopy}>
+                    <Text style={styles.createRoomReviewLabel}>ROOM</Text>
+                    <Text style={styles.createRoomReviewTitle} numberOfLines={1}>{title.trim()}</Text>
+                    <Text style={styles.createRoomReviewMeta}>{selectedRoomTypeLabel} / {selectedRoomModeLabel}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.createRoomReviewCard}>
+                  <Text style={styles.createRoomReviewLabel}>WHEN</Text>
+                  <Text style={styles.createRoomReviewValue} numberOfLines={2}>
+                    {roomStatus === "live" ? "Live now" : scheduledLabel}
+                  </Text>
+                </View>
+
+                <View style={styles.createRoomReviewGrid}>
+                  <View style={styles.createRoomReviewHalfCard}>
+                    <Text style={styles.createRoomReviewLabel}>CAPACITY</Text>
+                    <Text style={styles.createRoomReviewValue}>{maxUsers} people</Text>
+                  </View>
+                  <View style={styles.createRoomReviewHalfCard}>
+                    <Text style={styles.createRoomReviewLabel}>PRIVACY</Text>
+                    <Text style={styles.createRoomReviewValue}>{isPrivateRoom ? "Private" : "Public"}</Text>
+                  </View>
+                </View>
+
+                {roomMode !== "livestream" && (
+                  <View style={styles.createRoomReviewCard}>
+                    <Text style={styles.createRoomReviewLabel}>VENUE</Text>
+                    <Text style={styles.createRoomReviewValue} numberOfLines={1}>
+                      {venueName.trim() || (currentLocation ? "Current location" : "Not set")}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </Animated.View>
+          </View>
+
+          <View style={[styles.createRoomFooter, { paddingBottom: Math.max(insets.bottom, 14) }]}>
+            <TouchableOpacity
+              style={styles.createRoomBackButton}
+              onPress={currentCreateStep === 0 ? closeCreateRoom : goToPreviousCreateStep}
+              disabled={loading}
+            >
+              <Text style={styles.createRoomBackButtonText}>
+                {currentCreateStep === 0 ? "Cancel" : "Back"}
               </Text>
             </TouchableOpacity>
 
-            {currentLocation ? (
-              <Text style={styles.locationStatusText}>
-                Location added
+            <TouchableOpacity
+              style={[styles.createRoomPrimaryButton, loading && styles.createRoomButtonDisabled]}
+              onPress={currentCreateStep < 3 ? goToNextCreateStep : createRoom}
+              disabled={loading}
+            >
+              <Text style={styles.createRoomPrimaryButtonText}>
+                {currentCreateStep < 3
+                  ? "Next"
+                  : loading
+                    ? "Creating..."
+                    : roomStatus === "scheduled"
+                      ? "Schedule Room"
+                      : "Open Room"}
               </Text>
-            ) : null}
-
-            <View style={styles.controlGroup}>
-              <Text style={styles.controlLabel}>Event type</Text>
-              <View style={styles.choiceRow}>
-                {ROOM_TYPES.map((option) => (
-                  <TouchableOpacity
-                    key={option.value}
-                    style={[
-                      styles.choicePill,
-                      roomType === option.value && styles.choicePillActive,
-                    ]}
-                    onPress={() => setRoomType(option.value)}
-                  >
-                    <Text
-                      style={[
-                        styles.choicePillText,
-                        roomType === option.value && styles.choicePillTextActive,
-                      ]}
-                    >
-                      {option.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-
-          <View style={styles.controlGroup}>
-  <Text style={styles.controlLabel}>
-    Mode
-  </Text>
-
-  <View style={styles.choiceRow}>
-    {ROOM_MODES.map((option) => (
-      <TouchableOpacity
-        key={option.value}
-        style={[
-          styles.choicePill,
-          roomMode === option.value &&
-            styles.choicePillActive,
-        ]}
-        onPress={() =>
-          setRoomMode(option.value)
-        }
-      >
-        <Text
-          style={[
-            styles.choicePillText,
-            roomMode === option.value &&
-              styles.choicePillTextActive,
-          ]}
-        >
-          {option.label}
-        </Text>
-      </TouchableOpacity>
-    ))}
-  </View>
-</View>
-
-<View style={styles.controlGroup}>
-  <Text style={styles.controlLabel}>
-    Status
-  </Text>
-
-  <View style={styles.choiceRow}>
-    {ROOM_STATUSES.map((option) => (
-      <TouchableOpacity
-        key={option.value}
-        style={[
-          styles.choicePill,
-          roomStatus === option.value &&
-            styles.choicePillActive,
-        ]}
-        onPress={() =>
-          setRoomStatus(option.value)
-        }
-      >
-        <Text
-          style={[
-            styles.choicePillText,
-            roomStatus === option.value &&
-              styles.choicePillTextActive,
-          ]}
-        >
-          {option.label}
-        </Text>
-      </TouchableOpacity>
-    ))}
-  </View>
-</View>
-
-<View style={styles.controlGroup}>
-  <Text style={styles.controlLabel}>
-    Vibes
-  </Text>
-
-  <View style={styles.choiceRow}>
-    {VIBE_TAGS.map((tag) => {
-      const active = selectedVibes.includes(tag);
-
-      return (
-        <TouchableOpacity
-          key={tag}
-          style={[
-            styles.choicePill,
-            active && styles.choicePillActive,
-          ]}
-          onPress={() =>
-            setSelectedVibes((current) =>
-              current.includes(tag)
-                ? current.filter((item) => item !== tag)
-                : [...current, tag]
-            )
-          }
-        >
-          <Text
-            style={[
-              styles.choicePillText,
-              active && styles.choicePillTextActive,
-            ]}
-          >
-            {tag}
-          </Text>
-        </TouchableOpacity>
-      );
-    })}
-  </View>
-</View>
-
-<View style={styles.controlGroup}>
-  <Text style={styles.controlLabel}>
-    Privacy
-  </Text>
-
-  <TouchableOpacity
-    style={[
-      styles.choicePill,
-      isPrivateRoom &&
-        styles.choicePillActive,
-    ]}
-    onPress={() =>
-      setIsPrivateRoom(
-        (current) => !current
-      )
-    }
-  >
-    <Text
-      style={[
-        styles.choicePillText,
-        isPrivateRoom &&
-          styles.choicePillTextActive,
-      ]}
-    >
-      {isPrivateRoom
-        ? "Private Room On"
-        : "Private Room Off"}
-    </Text>
-  </TouchableOpacity>
-</View>
-
-<TouchableOpacity
-  style={[
-    styles.createButton,
-    loading && { opacity: 0.55 },
-  ]}
-  onPress={createRoom}
-  disabled={loading}
->
-  <Text style={styles.createButtonText}>
-    {loading
-      ? "Creating..."
-      : "Open Room"}
-  </Text>
-</TouchableOpacity>
-
-  </ScrollView>
-        </View>
+              {currentCreateStep < 3 && <Icon name="chevronRight" size={18} color="#FFFFFF" />}
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -1880,115 +2330,531 @@ const styles = StyleSheet.create({
     top: -2,
     width: 14,
   },
-  modalBackdrop: {
-    alignItems: "center",
-    backgroundColor: "rgba(0, 0, 0, 0.72)",
+  createRoomModal: {
+    backgroundColor: "#0D0713",
     flex: 1,
-    justifyContent: "flex-end",
-    padding: 20,
   },
-  createSheet: {
-  backgroundColor: "#11101B",
-  borderColor: "#332855",
-  borderRadius: 24,
-  borderWidth: 1,
-  padding: 18,
-  width: "100%",
-  maxHeight: "88%",
-},
-  sheetHeader: {
+  createRoomHeader: {
+    borderBottomColor: "#271B31",
+    borderBottomWidth: 1,
+    paddingBottom: 12,
+    paddingHorizontal: 20,
+  },
+  createRoomTitleRow: {
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 16,
   },
-  sheetTitle: {
+  createRoomBrand: {
+    color: "#C899FF",
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0,
+  },
+  createRoomTitle: {
     color: "#FFFFFF",
-    fontSize: 22,
+    fontSize: 25,
+    fontWeight: "900",
+    letterSpacing: 0,
+    marginTop: 2,
+  },
+  createRoomCloseButton: {
+    alignItems: "center",
+    backgroundColor: "#1D1524",
+    borderColor: "#382843",
+    borderRadius: 8,
+    borderWidth: 1,
+    height: 40,
+    justifyContent: "center",
+    width: 40,
+  },
+  createRoomProgressRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 16,
+  },
+  createRoomProgressTrack: {
+    backgroundColor: "#302536",
+    borderRadius: 3,
+    flex: 1,
+    height: 5,
+  },
+  createRoomProgressTrackActive: {
+    backgroundColor: "#9146FF",
+  },
+  createRoomStepRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 8,
+  },
+  createRoomStepName: {
+    color: "#C8BECF",
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0,
+    textTransform: "uppercase",
+  },
+  createRoomStepCount: {
+    color: "#7D7484",
+    fontSize: 11,
     fontWeight: "900",
   },
-  closeButton: {
-    alignItems: "center",
-    backgroundColor: "#23212F",
-    borderRadius: 16,
-    height: 36,
-    justifyContent: "center",
-    width: 36,
+  createRoomViewport: {
+    flex: 1,
+    overflow: "hidden",
   },
-  input: {
-    backgroundColor: "#08080D",
-    borderColor: "#242033",
-    borderRadius: 16,
-    borderWidth: 1,
-    color: "#FFFFFF",
-    marginBottom: 12,
-    padding: 14,
-  },
-  controlGroup: {
-    marginBottom: 16,
-  },
-  controlLabel: {
-    color: "#C4B5FD",
-    fontSize: 13,
-    fontWeight: "800",
-    marginBottom: 10,
-  },
-  choiceRow: {
+  createRoomPages: {
+    flex: 1,
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
   },
-  choicePill: {
-    backgroundColor: "#110F19",
-    borderColor: "#3A2A55",
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: 14,
+  createRoomPage: {
+    gap: 18,
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+  },
+  createRoomPageCompact: {
+    gap: 10,
     paddingVertical: 10,
   },
-  choicePillActive: {
-    backgroundColor: "#7C3AED",
-    borderColor: "#7C3AED",
+  createRoomWhenPage: {
+    gap: 12,
   },
-  choicePillText: {
-    color: "#D8B4FE",
+  createRoomReviewPage: {
+    gap: 10,
+  },
+  createRoomPageIntro: {
+    gap: 2,
+  },
+  createRoomPageTitle: {
+    color: "#FFFFFF",
+    fontSize: 21,
+    fontWeight: "900",
+    letterSpacing: 0,
+  },
+  createRoomFieldLabel: {
+    color: "#D7CFDC",
+    fontSize: 12,
+    fontWeight: "800",
+    marginBottom: 7,
+  },
+  createRoomInput: {
+    backgroundColor: "#08060B",
+    borderColor: "#2A2032",
+    borderRadius: 8,
+    borderWidth: 1,
+    color: "#FFFFFF",
+    fontSize: 15,
+    minHeight: 48,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  createRoomTypeGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  createRoomTypeOption: {
+    alignItems: "center",
+    backgroundColor: "#17111D",
+    borderColor: "#362641",
+    borderRadius: 8,
+    borderWidth: 1,
+    flexBasis: "31%",
+    flexGrow: 1,
+    justifyContent: "center",
+    minHeight: 44,
+    paddingHorizontal: 8,
+  },
+  createRoomOptionActive: {
+    backgroundColor: "#7130D5",
+    borderColor: "#A967FF",
+  },
+  createRoomOptionText: {
+    color: "#CDB7DD",
     fontSize: 13,
     fontWeight: "800",
+    textAlign: "center",
   },
-  choicePillTextActive: {
+  createRoomOptionTextActive: {
     color: "#FFFFFF",
   },
-  createButton: {
-    alignItems: "center",
-    backgroundColor: "#7C3AED",
-    borderRadius: 999,
-    minHeight: 50,
-    justifyContent: "center",
+  createRoomSegmentedControl: {
+    backgroundColor: "#08060B",
+    borderColor: "#2A2032",
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    padding: 4,
   },
-  createButtonText: {
+  createRoomSegment: {
+    alignItems: "center",
+    borderRadius: 6,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 40,
+    paddingHorizontal: 6,
+  },
+  createRoomSegmentActive: {
+    backgroundColor: "#7130D5",
+  },
+  createRoomSegmentText: {
+    color: "#958A9E",
+    fontSize: 13,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  createRoomLivePanel: {
+    alignItems: "center",
+    backgroundColor: "#0D251E",
+    borderColor: "#194D3C",
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    padding: 16,
+  },
+  createRoomLiveDot: {
+    backgroundColor: "#34D399",
+    borderRadius: 6,
+    height: 12,
+    marginRight: 12,
+    width: 12,
+  },
+  createRoomLiveCopy: {
+    flex: 1,
+  },
+  createRoomLiveTitle: {
+    color: "#D1FAE5",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  createRoomLiveText: {
+    color: "#8EC8B2",
+    fontSize: 12,
+    fontWeight: "600",
+    marginTop: 2,
+  },
+  createRoomScheduleContent: {
+    gap: 10,
+  },
+  createRoomCalendar: {
+    backgroundColor: "#15101A",
+    borderColor: "#35243F",
+    borderRadius: 8,
+    borderWidth: 1,
+    padding: 10,
+  },
+  createRoomCalendarHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
+  createRoomCalendarArrow: {
+    alignItems: "center",
+    backgroundColor: "#211827",
+    borderRadius: 6,
+    height: 32,
+    justifyContent: "center",
+    width: 32,
+  },
+  createRoomCalendarMonth: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  createRoomCalendarGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+  createRoomWeekday: {
+    color: "#756C7D",
+    fontSize: 10,
+    fontWeight: "900",
+    height: 18,
+    textAlign: "center",
+    width: "14.2857%",
+  },
+  createRoomCalendarDay: {
+    alignItems: "center",
+    borderRadius: 6,
+    height: 29,
+    justifyContent: "center",
+    width: "14.2857%",
+  },
+  createRoomCalendarDayCompact: {
+    height: 25,
+  },
+  createRoomCalendarDayActive: {
+    backgroundColor: "#7C3AED",
+  },
+  createRoomCalendarDayText: {
+    color: "#DCD4E2",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  createRoomCalendarDayTextDisabled: {
+    color: "#403746",
+  },
+  createRoomTimePanel: {
+    backgroundColor: "#15101A",
+    borderColor: "#35243F",
+    borderRadius: 8,
+    borderWidth: 1,
+    padding: 10,
+  },
+  createRoomTimeHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  createRoomTimeValue: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  createRoomSliderRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    minHeight: 34,
+  },
+  createRoomSliderLabel: {
+    color: "#948A9C",
+    fontSize: 11,
+    fontWeight: "800",
+    width: 35,
+  },
+  createRoomSlider: {
+    flex: 1,
+    height: 34,
+  },
+  createRoomSliderValue: {
+    color: "#DCC4FF",
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "right",
+    width: 25,
+  },
+  createRoomPeriodControl: {
+    alignSelf: "flex-end",
+    backgroundColor: "#08060B",
+    borderRadius: 6,
+    flexDirection: "row",
+    padding: 3,
+    width: 132,
+  },
+  createRoomPeriodOption: {
+    alignItems: "center",
+    borderRadius: 5,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 30,
+  },
+  createRoomSettingRow: {
+    alignItems: "center",
+    backgroundColor: "#15101A",
+    borderColor: "#302339",
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    minHeight: 68,
+    padding: 12,
+  },
+  createRoomSettingTitle: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  createRoomSettingHint: {
+    color: "#7F7587",
+    fontSize: 11,
+    fontWeight: "600",
+    marginTop: 2,
+  },
+  createRoomStepper: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
+  createRoomStepperButton: {
+    alignItems: "center",
+    backgroundColor: "#2A1C33",
+    borderRadius: 6,
+    height: 34,
+    justifyContent: "center",
+    width: 34,
+  },
+  createRoomStepperSymbol: {
+    color: "#FFFFFF",
+    fontSize: 21,
+    fontWeight: "700",
+  },
+  createRoomStepperValue: {
     color: "#FFFFFF",
     fontSize: 16,
     fontWeight: "900",
+    minWidth: 28,
+    textAlign: "center",
   },
-  locationButton: {
+  createRoomLocationBlock: {
+    gap: 8,
+  },
+  createRoomSecondaryButton: {
     alignItems: "center",
-    backgroundColor: "#1F1D2D",
-    borderColor: "#4C3E6A",
+    backgroundColor: "#211827",
+    borderColor: "#453053",
+    borderRadius: 8,
     borderWidth: 1,
-    borderRadius: 16,
-    minHeight: 50,
     justifyContent: "center",
-    marginBottom: 8,
+    minHeight: 42,
   },
-  locationButtonText: {
+  createRoomSecondaryButtonActive: {
+    backgroundColor: "#153328",
+    borderColor: "#28634F",
+  },
+  createRoomSecondaryButtonText: {
     color: "#D8B4FE",
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: "800",
   },
-  locationStatusText: {
-    color: "#9CA3AF",
-    fontSize: 13,
-    marginBottom: 12,
+  createRoomCoverRow: {
+    alignItems: "center",
+    backgroundColor: "#15101A",
+    borderColor: "#302339",
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    minHeight: 68,
+    padding: 8,
+  },
+  createRoomCoverPlaceholder: {
+    alignItems: "center",
+    backgroundColor: "#27172F",
+    borderRadius: 6,
+    height: 50,
+    justifyContent: "center",
+    width: 72,
+  },
+  createRoomCoverPreview: {
+    borderRadius: 6,
+    height: 50,
+    width: 72,
+  },
+  createRoomCoverCopy: {
+    flex: 1,
+    paddingHorizontal: 12,
+  },
+  createRoomPrivacyCopy: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  createRoomReviewHero: {
+    backgroundColor: "#15101A",
+    borderColor: "#382545",
+    borderRadius: 8,
+    borderWidth: 1,
+    minHeight: 82,
+    overflow: "hidden",
+  },
+  createRoomReviewCover: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.32,
+  },
+  createRoomReviewHeroCopy: {
+    flex: 1,
+    justifyContent: "center",
+    padding: 14,
+  },
+  createRoomReviewLabel: {
+    color: "#C899FF",
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0,
+  },
+  createRoomReviewTitle: {
+    color: "#FFFFFF",
+    fontSize: 20,
+    fontWeight: "900",
+    letterSpacing: 0,
+    marginTop: 3,
+  },
+  createRoomReviewMeta: {
+    color: "#AAA0B2",
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+  createRoomReviewCard: {
+    backgroundColor: "#15101A",
+    borderColor: "#302339",
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 68,
+    padding: 12,
+  },
+  createRoomReviewGrid: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  createRoomReviewHalfCard: {
+    backgroundColor: "#15101A",
+    borderColor: "#302339",
+    borderRadius: 8,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 68,
+    padding: 12,
+  },
+  createRoomReviewValue: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "900",
+    marginTop: 4,
+  },
+  createRoomFooter: {
+    alignItems: "center",
+    backgroundColor: "#100817",
+    borderTopColor: "#2A1C33",
+    borderTopWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+  },
+  createRoomBackButton: {
+    alignItems: "center",
+    borderColor: "#3B2B45",
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 48,
+    paddingHorizontal: 18,
+  },
+  createRoomBackButtonText: {
+    color: "#D7CEDD",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  createRoomPrimaryButton: {
+    alignItems: "center",
+    backgroundColor: "#8338EC",
+    borderRadius: 8,
+    flex: 1,
+    flexDirection: "row",
+    gap: 6,
+    justifyContent: "center",
+    minHeight: 48,
+    paddingHorizontal: 16,
+  },
+  createRoomPrimaryButtonText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  createRoomButtonDisabled: {
+    opacity: 0.55,
   },
   signOutButton: {
     alignItems: "center",
