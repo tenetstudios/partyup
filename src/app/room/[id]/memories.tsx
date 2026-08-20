@@ -104,18 +104,39 @@ export default function RoomMemoriesScreen() {
     setMemories((data || []) as RoomMemory[]);
   }, [roomId]);
 
+  const resolveCurrentIdentity = useCallback(async () => {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const user = sessionData.session?.user;
+
+    if (!user) {
+      setCurrentUserId("");
+      setCurrentIdentityId("");
+      return;
+    }
+
+    setCurrentUserId(user.id);
+
+    try {
+      const identity = await ensurePartyUpIdentity();
+      setCurrentIdentityId(identity.id);
+    } catch {
+      setCurrentIdentityId("");
+    }
+  }, []);
+
   const loadAll = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const { data: userData } = await supabase.auth.getUser();
-      const user = userData.user;
+      const { data: sessionData } = await supabase.auth.getSession();
+      const user = sessionData.session?.user;
 
-      if (user) {
+      if (user?.id) {
         setCurrentUserId(user.id);
-        const identity = await ensurePartyUpIdentity();
-        setCurrentIdentityId(identity.id);
+      } else {
+        setCurrentUserId("");
+        setCurrentIdentityId("");
       }
 
       const { data: roomData, error: roomError } = await supabase
@@ -130,12 +151,16 @@ export default function RoomMemoriesScreen() {
 
       setRoom(roomData as Room | null);
       await loadMemories();
+
+      if (user?.id) {
+        void resolveCurrentIdentity();
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not load Memories.");
     } finally {
       setLoading(false);
     }
-  }, [loadMemories, roomId]);
+  }, [loadMemories, resolveCurrentIdentity, roomId]);
 
   useEffect(() => {
     void loadAll();
@@ -244,18 +269,18 @@ export default function RoomMemoriesScreen() {
         text: "Delete",
         style: "destructive",
         onPress: async () => {
-          const { error: deleteError } = await supabase
-            .from("room_memories")
-            .update({ deleted_at: new Date().toISOString() })
-            .eq("id", memory.id);
+          const { error: deleteError } = await supabase.rpc("delete_room_memory", {
+            p_memory_id: memory.id,
+          });
 
           if (deleteError) {
             Alert.alert("Delete failed", deleteError.message);
             return;
           }
 
+          setMemories((current) => current.filter((item) => item.id !== memory.id));
           await supabase.storage.from("room-memories").remove([memory.media_path]);
-          await loadMemories();
+          await loadMemories().catch(() => undefined);
         },
       },
     ]);
