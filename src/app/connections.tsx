@@ -344,9 +344,9 @@ export default function ConnectionsScreen() {
         <Text style={styles.back}>Back Home</Text>
       </TouchableOpacity>
 
-      <Text style={styles.title}>Connections</Text>
+      <Text style={styles.title}>Your Circle</Text>
       <Text style={styles.subtitle}>
-        Connections are mutual Keep in Touch moments from Match. Following stays separate.
+        People you met, people you follow, and memories you saved from PartyUp rooms.
       </Text>
 
       <View style={styles.tabRow}>
