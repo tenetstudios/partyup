@@ -13,6 +13,13 @@ import {
   getProfileSocialState,
   removePartyUpConnection,
 } from "../../../lib/connections";
+import {
+  formatMemoryDate,
+  getMemoryPublicUrl,
+  getMySavedMemoryGroups,
+  type SavedMemory,
+  type SavedMemoryGroup,
+} from "../../../lib/memories";
 import { supabase } from "../../../lib/supabase";
 
 type ProfileView = {
@@ -35,6 +42,7 @@ export default function UserProfile() {
   const [isFollowing, setIsFollowing] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [connectionId, setConnectionId] = useState<string | null>(null);
+  const [memoryGroups, setMemoryGroups] = useState<SavedMemoryGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
 
@@ -70,6 +78,16 @@ export default function UserProfile() {
     setProfile(profileData as ProfileView);
 
     const loaded = await loadProfileStats(profileId, userId);
+    if (userId === profileId) {
+      try {
+        setMemoryGroups(await getMySavedMemoryGroups());
+      } catch {
+        setMemoryGroups([]);
+      }
+    } else {
+      setMemoryGroups([]);
+    }
+
     if (!loaded) {
       setLoading(false);
       return;
@@ -192,6 +210,7 @@ export default function UserProfile() {
       {loading ? (
         <Text style={styles.loading}>Loading profile…</Text>
       ) : profile ? (
+        <>
         <View style={styles.card}>
           <View style={styles.headerRow}>
             {profile.avatar_url ? (
@@ -278,10 +297,89 @@ export default function UserProfile() {
             )}
           </View>
         </View>
+
+        {currentUserId === profile.id && (
+          <ProfileMemoriesSection groups={memoryGroups} />
+        )}
+        </>
       ) : (
         <Text style={styles.empty}>Profile not found.</Text>
       )}
     </ScrollView>
+  );
+}
+
+function ProfileMemoriesSection({ groups }: { groups: SavedMemoryGroup[] }) {
+  return (
+    <View style={styles.memoriesCard}>
+      <View style={styles.memoriesHeader}>
+        <View style={styles.memoriesTitleBlock}>
+          <Text style={styles.memoriesTitle}>Memories</Text>
+          <Text style={styles.memoriesSubtitle}>Moments you chose to keep.</Text>
+        </View>
+        <TouchableOpacity
+          style={styles.memoriesViewAllButton}
+          onPress={() => router.push("/connections")}
+        >
+          <Text style={styles.memoriesViewAllText}>View all</Text>
+        </TouchableOpacity>
+      </View>
+
+      {groups.length === 0 ? (
+        <View style={styles.memoriesEmpty}>
+          <Text style={styles.memoriesEmptyTitle}>No saved memories yet.</Text>
+          <Text style={styles.memoriesEmptyText}>
+            Save photos and clips from event rooms and they will appear here.
+          </Text>
+          <TouchableOpacity style={styles.memoriesExploreButton} onPress={() => router.push("/rooms")}>
+            <Text style={styles.memoriesExploreText}>Explore Rooms</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        groups.slice(0, 4).map((group) => (
+          <TouchableOpacity
+            key={group.room_id}
+            style={styles.memoryGroupCard}
+            activeOpacity={0.86}
+            onPress={() => router.push("/connections")}
+          >
+            <View style={styles.memoryGroupHeader}>
+              <View style={styles.memoryGroupText}>
+                <Text style={styles.memoryGroupTitle} numberOfLines={1}>
+                  {group.room_title}
+                </Text>
+                <Text style={styles.memoryGroupDate}>
+                  {formatMemoryDate(group.room_date)}
+                </Text>
+              </View>
+              <View style={styles.memoryCountPill}>
+                <Text style={styles.memoryCountText}>{group.memory_count}</Text>
+              </View>
+            </View>
+
+            <View style={styles.memoryPreviewRow}>
+              {group.memories.slice(0, 4).map((memory) => (
+                <ProfileMemoryPreview key={memory.id} memory={memory} />
+              ))}
+            </View>
+          </TouchableOpacity>
+        ))
+      )}
+    </View>
+  );
+}
+
+function ProfileMemoryPreview({ memory }: { memory: SavedMemory }) {
+  const url = getMemoryPublicUrl(memory.thumbnail_path || memory.media_path);
+
+  if (memory.media_type === "image") {
+    return <Image source={{ uri: url }} style={styles.memoryPreviewImage} />;
+  }
+
+  return (
+    <View style={styles.memoryPreviewVideo}>
+      <Text style={styles.memoryPreviewVideoText}>Play</Text>
+    </View>
   );
 }
 
@@ -458,5 +556,145 @@ const styles = StyleSheet.create({
   selfNotice: {
     color: "#A78BFA",
     fontSize: 14,
+  },
+  memoriesCard: {
+    backgroundColor: "#11111A",
+    borderColor: "#2A2140",
+    borderRadius: 24,
+    borderWidth: 1,
+    gap: 14,
+    marginTop: 18,
+    padding: 18,
+  },
+  memoriesHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12,
+    justifyContent: "space-between",
+  },
+  memoriesTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  memoriesTitle: {
+    color: "#FFFFFF",
+    fontSize: 24,
+    fontWeight: "900",
+  },
+  memoriesSubtitle: {
+    color: "#A78BFA",
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: 3,
+  },
+  memoriesViewAllButton: {
+    backgroundColor: "rgba(124, 58, 237, 0.18)",
+    borderColor: "rgba(167, 139, 250, 0.28)",
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+  },
+  memoriesViewAllText: {
+    color: "#E9D5FF",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  memoriesEmpty: {
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderRadius: 18,
+    padding: 16,
+  },
+  memoriesEmptyTitle: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  memoriesEmptyText: {
+    color: "#8F8A9F",
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 6,
+  },
+  memoriesExploreButton: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: "#7C3AED",
+    borderRadius: 999,
+    marginTop: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+  },
+  memoriesExploreText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  memoryGroupCard: {
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderColor: "rgba(255,255,255,0.07)",
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 12,
+  },
+  memoryGroupHeader: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "space-between",
+  },
+  memoryGroupText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  memoryGroupTitle: {
+    color: "#FFFFFF",
+    fontSize: 17,
+    fontWeight: "900",
+  },
+  memoryGroupDate: {
+    color: "#A78BFA",
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: 3,
+  },
+  memoryCountPill: {
+    alignItems: "center",
+    backgroundColor: "rgba(124, 58, 237, 0.28)",
+    borderRadius: 999,
+    minWidth: 34,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  memoryCountText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  memoryPreviewRow: {
+    flexDirection: "row",
+    gap: 7,
+    marginTop: 12,
+  },
+  memoryPreviewImage: {
+    aspectRatio: 1,
+    backgroundColor: "#171322",
+    borderRadius: 10,
+    flex: 1,
+    minHeight: 62,
+  },
+  memoryPreviewVideo: {
+    alignItems: "center",
+    aspectRatio: 1,
+    backgroundColor: "#171322",
+    borderRadius: 10,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 62,
+  },
+  memoryPreviewVideoText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "900",
   },
 });

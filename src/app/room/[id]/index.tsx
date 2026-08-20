@@ -1240,6 +1240,12 @@ async function makeBouncer(person: Participant) {
   const myParticipant = participants.find(
     (p) => p.user_id === currentUserId
   );
+  const prioritizedParticipants = currentUserId
+    ? [
+        ...participants.filter((person) => person.user_id === currentUserId),
+        ...participants.filter((person) => person.user_id !== currentUserId),
+      ]
+    : participants;
 
   useEffect(() => {
     if (!pendingLocalPublish || !myParticipant?.can_stream) {
@@ -1930,7 +1936,7 @@ const requestedStreamers = [
                 {participants.length === 0 ? (
                   <Text style={styles.empty}>No one inside yet.</Text>
                 ) : (
-                  participants.map((person) => {
+                  prioritizedParticipants.map((person) => {
                     const participantName = getDisplayName(person);
                     const isOnline = isUserOnline(person.user_id, presenceUsers);
                     return (
