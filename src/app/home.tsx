@@ -4,7 +4,6 @@ import * as Location from "expo-location";
 import { router, useFocusEffect } from "expo-router";
 import type { AndroidSymbol, SFSymbol, SymbolViewProps } from "expo-symbols";
 import { SymbolView } from "expo-symbols";
-import Slider from "@react-native-community/slider";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -221,6 +220,54 @@ function formatScheduledDate(dateValue: string) {
     month: "short",
     day: "numeric",
   }).format(new Date(year, month - 1, day));
+}
+
+function TimeSlider({
+  maximumValue,
+  minimumValue,
+  onValueChange,
+  step,
+  value,
+}: {
+  maximumValue: number;
+  minimumValue: number;
+  onValueChange: (value: number) => void;
+  step: number;
+  value: number;
+}) {
+  const [trackWidth, setTrackWidth] = useState(0);
+  const progress = (value - minimumValue) / (maximumValue - minimumValue);
+
+  function updateValue(locationX: number) {
+    if (!trackWidth) return;
+
+    const clampedX = Math.max(0, Math.min(trackWidth, locationX));
+    const rawValue = minimumValue + (clampedX / trackWidth) * (maximumValue - minimumValue);
+    const nextValue = minimumValue + Math.round((rawValue - minimumValue) / step) * step;
+
+    onValueChange(Math.max(minimumValue, Math.min(maximumValue, nextValue)));
+  }
+
+  return (
+    <View
+      style={styles.createRoomSlider}
+      onLayout={(event) => setTrackWidth(event.nativeEvent.layout.width)}
+      onStartShouldSetResponder={() => true}
+      onMoveShouldSetResponder={() => true}
+      onResponderGrant={(event) => updateValue(event.nativeEvent.locationX)}
+      onResponderMove={(event) => updateValue(event.nativeEvent.locationX)}
+    >
+      <View style={styles.createRoomSliderTrack}>
+        <View style={[styles.createRoomSliderFill, { width: `${progress * 100}%` }]} />
+        <View
+          style={[
+            styles.createRoomSliderThumb,
+            { left: Math.max(0, Math.min(Math.max(0, trackWidth - 20), progress * trackWidth - 10)) },
+          ]}
+        />
+      </View>
+    </View>
+  );
 }
 
 function getRoomScore(room: Room) {
@@ -1551,31 +1598,23 @@ async function syncRoomCounts(roomId: string) {
                       </View>
                       <View style={styles.createRoomSliderRow}>
                         <Text style={styles.createRoomSliderLabel}>Hour</Text>
-                        <Slider
-                          style={styles.createRoomSlider}
+                        <TimeSlider
                           minimumValue={1}
                           maximumValue={12}
                           step={1}
                           value={scheduledHour}
                           onValueChange={setScheduledHour}
-                          minimumTrackTintColor="#9146FF"
-                          maximumTrackTintColor="#3B3347"
-                          thumbTintColor="#C899FF"
                         />
                         <Text style={styles.createRoomSliderValue}>{scheduledHour}</Text>
                       </View>
                       <View style={styles.createRoomSliderRow}>
                         <Text style={styles.createRoomSliderLabel}>Min</Text>
-                        <Slider
-                          style={styles.createRoomSlider}
+                        <TimeSlider
                           minimumValue={0}
                           maximumValue={55}
                           step={5}
                           value={scheduledMinute}
                           onValueChange={setScheduledMinute}
-                          minimumTrackTintColor="#9146FF"
-                          maximumTrackTintColor="#3B3347"
-                          thumbTintColor="#C899FF"
                         />
                         <Text style={styles.createRoomSliderValue}>{pad(scheduledMinute)}</Text>
                       </View>
@@ -2626,6 +2665,28 @@ const styles = StyleSheet.create({
   createRoomSlider: {
     flex: 1,
     height: 34,
+    justifyContent: "center",
+  },
+  createRoomSliderTrack: {
+    backgroundColor: "#3B3347",
+    borderRadius: 3,
+    height: 5,
+    position: "relative",
+  },
+  createRoomSliderFill: {
+    backgroundColor: "#9146FF",
+    borderRadius: 3,
+    height: 5,
+  },
+  createRoomSliderThumb: {
+    backgroundColor: "#C899FF",
+    borderColor: "#FFFFFF",
+    borderRadius: 10,
+    borderWidth: 2,
+    height: 20,
+    position: "absolute",
+    top: -8,
+    width: 20,
   },
   createRoomSliderValue: {
     color: "#DCC4FF",
