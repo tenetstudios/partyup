@@ -1,6 +1,6 @@
 import { Image } from "expo-image";
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Alert,
   ScrollView,
@@ -10,9 +10,15 @@ import {
   View,
 } from "react-native";
 import {
-  getProfileSocialState,
   removePartyUpConnection,
 } from "../../../lib/connections";
+import {
+  formatHostEventDate,
+  getHostDisplayName,
+  getHostReputationProfile,
+  type HostEvent,
+  type HostReputationProfile,
+} from "../../../lib/hostProfile";
 import {
   formatMemoryDate,
   getMemoryPublicUrl,
@@ -25,8 +31,11 @@ import { supabase } from "../../../lib/supabase";
 type ProfileView = {
   id: string;
   username: string | null;
+  display_name: string | null;
   avatar_url: string | null;
   bio: string | null;
+  location: string | null;
+  is_verified_host: boolean;
 };
 
 export default function UserProfile() {
@@ -34,11 +43,10 @@ export default function UserProfile() {
   const profileId = String(id);
 
   const [profile, setProfile] = useState<ProfileView | null>(null);
+  const [hostData, setHostData] = useState<HostReputationProfile | null>(null);
   const [currentUserId, setCurrentUserId] = useState("");
   const [followers, setFollowers] = useState(0);
   const [following, setFollowing] = useState(0);
-  const [roomsHosted, setRoomsHosted] = useState(0);
-  const [isLiveNow, setIsLiveNow] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [connectionId, setConnectionId] = useState<string | null>(null);
@@ -46,38 +54,36 @@ export default function UserProfile() {
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
 
-  useEffect(() => {
-    loadProfilePage();
-  }, [profileId]);
-
-  async function loadProfilePage() {
+  const loadProfilePage = useCallback(async () => {
     setLoading(true);
 
     const { data: userData } = await supabase.auth.getUser();
     const userId = userData.user?.id || "";
     setCurrentUserId(userId);
 
-    const { data: profileData, error: profileError } = await supabase
-      .from("profiles")
-      .select("id, username, avatar_url, bio")
-      .eq("id", profileId)
-      .maybeSingle();
+    try {
+      const loadedHostData = await getHostReputationProfile(profileId);
+      setHostData(loadedHostData);
 
-    if (profileError) {
-      window.alert(profileError.message);
-      setLoading(false);
-      return;
-    }
+      if (!loadedHostData) {
+        setProfile(null);
+        setLoading(false);
+        return;
+      }
 
-    if (!profileData) {
+      setProfile(loadedHostData.profile);
+      setFollowers(loadedHostData.social.followers);
+      setFollowing(loadedHostData.social.following);
+      setIsFollowing(loadedHostData.social.is_following);
+      setIsConnected(loadedHostData.social.connected);
+      setConnectionId(loadedHostData.social.connection_id);
+    } catch (error) {
+      Alert.alert("PartyUp", error instanceof Error ? error.message : "Could not load this profile.");
       setProfile(null);
       setLoading(false);
       return;
     }
 
-    setProfile(profileData as ProfileView);
-
-    const loaded = await loadProfileStats(profileId, userId);
     if (userId === profileId) {
       try {
         setMemoryGroups(await getMySavedMemoryGroups());
@@ -88,46 +94,27 @@ export default function UserProfile() {
       setMemoryGroups([]);
     }
 
-    if (!loaded) {
-      setLoading(false);
-      return;
-    }
-
     setLoading(false);
-  }
+  }, [profileId]);
 
-  async function loadProfileStats(profileId: string, userId: string) {
-    const roomsQuery = supabase
-      .from("event_rooms")
-      .select("id")
-      .eq("host_id", profileId);
-    const liveQuery = supabase
-      .from("event_rooms")
-      .select("id")
-      .eq("host_id", profileId)
-      .eq("status", "live");
+  useEffect(() => {
+    void loadProfilePage();
+  }, [loadProfilePage]);
 
-    const [socialState, roomsRes, liveRes] = await Promise.all([
-      getProfileSocialState(profileId),
-      roomsQuery,
-      liveQuery,
-    ]);
+  async function loadProfileStats(profileId: string) {
+    const loadedHostData = await getHostReputationProfile(profileId);
 
-    if (
-      roomsRes.error ||
-      liveRes.error
-    ) {
-      window.alert("Failed to load profile stats.");
+    if (!loadedHostData) {
       return false;
     }
 
-    setFollowers(socialState.followers);
-    setFollowing(socialState.following);
-    setIsFollowing(socialState.is_following);
-    setIsConnected(socialState.connected);
-    setConnectionId(socialState.connection_id);
-    setRoomsHosted((roomsRes.data || []).length);
-    setIsLiveNow((liveRes.data || []).length > 0);
+    setHostData(loadedHostData);
+    setProfile(loadedHostData.profile);
+    setFollowers(loadedHostData.social.followers);
+    setFollowing(loadedHostData.social.following);
+    setIsFollowing(loadedHostData.social.is_following);
+    setIsConnected(loadedHostData.social.connected);
+    setConnectionId(loadedHostData.social.connection_id);
 
     return true;
   }
@@ -147,7 +134,7 @@ export default function UserProfile() {
           .eq("following_id", profile.id);
 
         if (error) {
-          window.alert(error.message);
+          Alert.alert("PartyUp", error.message);
           return;
         }
       } else {
@@ -157,12 +144,12 @@ export default function UserProfile() {
         });
 
         if (error) {
-          window.alert(error.message);
+          Alert.alert("PartyUp", error.message);
           return;
         }
       }
 
-      await loadProfileStats(profile.id, currentUserId);
+      await loadProfileStats(profile.id);
     } finally {
       setProcessing(false);
     }
@@ -186,7 +173,8 @@ export default function UserProfile() {
               setIsConnected(false);
               setConnectionId(null);
             } catch (error) {
-              window.alert(
+              Alert.alert(
+                "PartyUp",
                 error instanceof Error ? error.message : "Could not remove this Connection."
               );
             } finally {
@@ -225,12 +213,17 @@ export default function UserProfile() {
 
             <View style={styles.titleBlock}>
               <Text style={styles.username} numberOfLines={1}>
-                {profile.username || `Guest ${profile.id.slice(0, 4)}`}
+                {getHostDisplayName(profile)}
               </Text>
               <View style={styles.badgeRow}>
-                {isLiveNow && (
+                {hostData?.summary.is_live_now && (
                   <View style={styles.liveBadge}>
                     <Text style={styles.liveBadgeText}>LIVE NOW</Text>
+                  </View>
+                )}
+                {profile.is_verified_host && (
+                  <View style={styles.verifiedBadge}>
+                    <Text style={styles.verifiedBadgeText}>Verified host</Text>
                   </View>
                 )}
                 {isConnected && (
@@ -238,13 +231,11 @@ export default function UserProfile() {
                     <Text style={styles.connectedBadgeText}>Connected</Text>
                   </View>
                 )}
-                <View style={styles.trustBadge}>
-                  <Text style={styles.trustBadgeText}>Trusted Host</Text>
-                </View>
               </View>
             </View>
           </View>
 
+          {profile.location && <Text style={styles.location}>{profile.location}</Text>}
           <Text style={styles.bio}>{profile.bio || "This user has no bio yet."}</Text>
 
           <View style={styles.statsRow}>
@@ -257,8 +248,8 @@ export default function UserProfile() {
               <Text style={styles.statLabel}>Following</Text>
             </View>
             <View style={styles.statCard}>
-              <Text style={styles.statValue}>{roomsHosted}</Text>
-              <Text style={styles.statLabel}>Rooms hosted</Text>
+              <Text style={styles.statValue}>{hostData?.summary.events_hosted ?? 0}</Text>
+              <Text style={styles.statLabel}>Events hosted</Text>
             </View>
           </View>
 
@@ -298,6 +289,8 @@ export default function UserProfile() {
           </View>
         </View>
 
+        {hostData && <HostEvidenceSection data={hostData} />}
+
         {currentUserId === profile.id && (
           <ProfileMemoriesSection groups={memoryGroups} />
         )}
@@ -306,6 +299,109 @@ export default function UserProfile() {
         <Text style={styles.empty}>Profile not found.</Text>
       )}
     </ScrollView>
+  );
+}
+
+function HostEvidenceSection({ data }: { data: HostReputationProfile }) {
+  const summaryItems = [
+    [data.summary.people_attended, "People attended"],
+    [data.summary.connections_created, "Connections started"],
+    [data.summary.memories_created, "Memories posted"],
+  ] as const;
+
+  return (
+    <View style={styles.hostEvidenceCard}>
+      <Text style={styles.hostEvidenceEyebrow}>HOST REPUTATION</Text>
+      <Text style={styles.hostEvidenceTitle}>What they have made happen</Text>
+
+      <View style={styles.hostMetricGrid}>
+        {summaryItems.map(([value, label]) => (
+          <View key={label} style={styles.hostMetricCard}>
+            <Text style={styles.hostMetricValue}>{value}</Text>
+            <Text style={styles.hostMetricLabel}>{label}</Text>
+          </View>
+        ))}
+      </View>
+
+      <Text style={styles.connectionsLine}>
+        {data.summary.connections_created} Connections started at their events.
+      </Text>
+
+      <HostEventSection
+        title="Upcoming events"
+        emptyTitle="Nothing announced yet."
+        emptyCopy="Follow this host to catch what they put together next."
+        events={data.upcoming_events}
+      />
+
+      <HostEventSection
+        title="Past events"
+        emptyTitle="New host energy."
+        emptyCopy="No completed PartyUp events are visible for this host yet."
+        events={data.past_events}
+      />
+    </View>
+  );
+}
+
+function HostEventSection({
+  title,
+  emptyTitle,
+  emptyCopy,
+  events,
+}: {
+  title: string;
+  emptyTitle: string;
+  emptyCopy: string;
+  events: HostEvent[];
+}) {
+  return (
+    <View style={styles.hostEventSection}>
+      <Text style={styles.hostEventSectionTitle}>{title}</Text>
+      {events.length === 0 ? (
+        <View style={styles.hostEventEmpty}>
+          <Text style={styles.hostEventEmptyTitle}>{emptyTitle}</Text>
+          <Text style={styles.hostEventEmptyCopy}>{emptyCopy}</Text>
+        </View>
+      ) : (
+        events.map((event) => <HostEventCard key={event.id} event={event} />)
+      )}
+    </View>
+  );
+}
+
+function HostEventCard({ event }: { event: HostEvent }) {
+  return (
+    <TouchableOpacity
+      style={styles.hostEventCard}
+      activeOpacity={0.86}
+      onPress={() => router.push(`/room/${event.id}`)}
+    >
+      {event.cover_image_url ? (
+        <Image source={{ uri: event.cover_image_url }} style={styles.hostEventImage} />
+      ) : (
+        <View style={styles.hostEventImageFallback}>
+          <Text style={styles.hostEventImageFallbackText}>PU</Text>
+        </View>
+      )}
+      <View style={styles.hostEventCopy}>
+        <View style={styles.hostEventTitleRow}>
+          <Text style={styles.hostEventTitle} numberOfLines={1}>{event.title}</Text>
+          {event.status && (
+            <View style={styles.hostEventStatusPill}>
+              <Text style={styles.hostEventStatusText}>{event.status.toUpperCase()}</Text>
+            </View>
+          )}
+        </View>
+        <Text style={styles.hostEventMeta} numberOfLines={1}>
+          {formatHostEventDate(event.event_date)}
+          {event.venue_name ? ` / ${event.venue_name}` : ""}
+        </Text>
+        <Text style={styles.hostEventStats}>
+          {event.people_count} people / {event.memory_count} Memories / {event.connection_count} Connections
+        </Text>
+      </View>
+    </TouchableOpacity>
   );
 }
 
@@ -481,13 +577,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
   },
-  trustBadge: {
+  verifiedBadge: {
     backgroundColor: "rgba(124, 58, 237, 0.18)",
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 999,
   },
-  trustBadgeText: {
+  verifiedBadgeText: {
     color: "#E9D5FF",
     fontSize: 12,
     fontWeight: "800",
@@ -497,6 +593,12 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     marginBottom: 24,
+  },
+  location: {
+    color: "#A78BFA",
+    fontSize: 13,
+    fontWeight: "800",
+    marginBottom: 8,
   },
   statsRow: {
     flexDirection: "row",
@@ -556,6 +658,155 @@ const styles = StyleSheet.create({
   selfNotice: {
     color: "#A78BFA",
     fontSize: 14,
+  },
+  hostEvidenceCard: {
+    backgroundColor: "#11111A",
+    borderColor: "#2A2140",
+    borderRadius: 24,
+    borderWidth: 1,
+    marginTop: 18,
+    padding: 18,
+  },
+  hostEvidenceEyebrow: {
+    color: "#FF63A8",
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+  },
+  hostEvidenceTitle: {
+    color: "#FFFFFF",
+    fontSize: 23,
+    fontWeight: "900",
+    marginTop: 6,
+  },
+  hostMetricGrid: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 16,
+  },
+  hostMetricCard: {
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderRadius: 16,
+    flex: 1,
+    minHeight: 88,
+    padding: 12,
+    justifyContent: "center",
+  },
+  hostMetricValue: {
+    color: "#D8B4FE",
+    fontSize: 22,
+    fontWeight: "900",
+  },
+  hostMetricLabel: {
+    color: "#A78BFA",
+    fontSize: 10,
+    fontWeight: "900",
+    lineHeight: 14,
+    marginTop: 5,
+    textTransform: "uppercase",
+  },
+  connectionsLine: {
+    color: "#B8B2C8",
+    fontSize: 13,
+    fontWeight: "800",
+    lineHeight: 20,
+    marginTop: 14,
+  },
+  hostEventSection: {
+    marginTop: 22,
+  },
+  hostEventSectionTitle: {
+    color: "#FFFFFF",
+    fontSize: 20,
+    fontWeight: "900",
+    marginBottom: 12,
+  },
+  hostEventEmpty: {
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderColor: "rgba(167,139,250,0.18)",
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 15,
+  },
+  hostEventEmptyTitle: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  hostEventEmptyCopy: {
+    color: "#8F8A9F",
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 5,
+  },
+  hostEventCard: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderColor: "rgba(255,255,255,0.07)",
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 10,
+    padding: 12,
+  },
+  hostEventImage: {
+    backgroundColor: "#171322",
+    borderRadius: 12,
+    height: 74,
+    width: 74,
+  },
+  hostEventImageFallback: {
+    alignItems: "center",
+    backgroundColor: "#20112F",
+    borderRadius: 12,
+    height: 74,
+    justifyContent: "center",
+    width: 74,
+  },
+  hostEventImageFallbackText: {
+    color: "#D8B4FE",
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  hostEventCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  hostEventTitleRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
+  hostEventTitle: {
+    color: "#FFFFFF",
+    flex: 1,
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  hostEventStatusPill: {
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: 7,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+  },
+  hostEventStatusText: {
+    color: "#C9C2D7",
+    fontSize: 9,
+    fontWeight: "900",
+  },
+  hostEventMeta: {
+    color: "#A78BFA",
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: 5,
+  },
+  hostEventStats: {
+    color: "#817B8B",
+    fontSize: 10,
+    fontWeight: "900",
+    marginTop: 10,
+    textTransform: "uppercase",
   },
   memoriesCard: {
     backgroundColor: "#11111A",
