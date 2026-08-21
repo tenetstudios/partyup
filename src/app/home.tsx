@@ -735,6 +735,10 @@ async function syncRoomCounts(roomId: string) {
       return;
     }
 
+    if (currentCreateStep === 2) {
+      setMaxUsers(String(getCapacityValue(maxUsers)));
+    }
+
     setCurrentCreateStep((step) => Math.min(step + 1, 3) as CreateRoomStep);
   }
 
@@ -743,8 +747,20 @@ async function syncRoomCounts(roomId: string) {
   }
 
   function adjustCapacity(change: number) {
-    const currentCapacity = Number(maxUsers) || 12;
+    const currentCapacity = getCapacityValue(maxUsers);
     setMaxUsers(String(Math.min(100, Math.max(2, currentCapacity + change))));
+  }
+
+  function getCapacityValue(value: string) {
+    if (!value.trim()) return 12;
+
+    const parsedValue = Number(value);
+
+    return Number.isFinite(parsedValue) ? Math.min(100, Math.max(2, parsedValue)) : 12;
+  }
+
+  function updateCapacity(value: string) {
+    setMaxUsers(value.replace(/\D/g, "").slice(0, 3));
   }
 
   async function pickCoverImage() {
@@ -826,7 +842,7 @@ async function syncRoomCounts(roomId: string) {
           cover_image: coverImage,
           current_users: 0,
           queue_count: 0,
-          max_users: Number(maxUsers) || 12,
+          max_users: getCapacityValue(maxUsers),
           is_private: isPrivateRoom,
           type: roomType,
           mode: roomMode,
@@ -1194,17 +1210,20 @@ async function syncRoomCounts(roomId: string) {
   </View>
 )}
 
-        <View style={styles.statsPanel}>
-          {stats.map((stat, index) => (
-            <View key={stat.label} style={styles.statCell}>
-              <Icon name={stat.icon} size={24} color={index === 1 ? "#FF4FC3" : "#A855F7"} />
-              <Text style={styles.statValue}>{stat.value}</Text>
-              <Text style={styles.statLabel} numberOfLines={1}>
-                {stat.label}
-              </Text>
-              {index < stats.length - 1 && <View style={styles.statDivider} />}
-            </View>
-          ))}
+        <View style={styles.matchTestCard}>
+          <View style={styles.quickIcon}>
+            <Icon name="sparkles" size={24} color="#FDB4D4" />
+          </View>
+
+          <View style={styles.quickTextBlock}>
+            <Text style={styles.quickTitle}>Match</Text>
+            <Text style={styles.quickSubtitle}>Test global 1-on-1 matching</Text>
+          </View>
+
+          <TouchableOpacity style={styles.matchTestButton} onPress={() => router.push("/match" as never)}>
+            <Text style={styles.surpriseText}>Open</Text>
+            <Icon name="chevronRight" size={15} color="#FDB4D4" />
+          </TouchableOpacity>
         </View>
 
         <View style={styles.sectionHeader}>
@@ -1213,9 +1232,9 @@ async function syncRoomCounts(roomId: string) {
             <Text style={styles.sectionTitle}>Live Rooms</Text>
           </View>
 
-          <TouchableOpacity style={styles.filterButton} onPress={fetchRooms}>
-            <Icon name="sliders" size={19} color="#FFFFFF" />
-            <Text style={styles.filterText}>Filter</Text>
+          <TouchableOpacity style={styles.filterButton} onPress={() => router.push("/rooms")}>
+            <Text style={styles.filterText}>View all</Text>
+            <Icon name="chevronRight" size={17} color="#C4B5FD" />
           </TouchableOpacity>
         </View>
 
@@ -1244,7 +1263,7 @@ async function syncRoomCounts(roomId: string) {
 
         <FlatList
           scrollEnabled={false}
-          data={filteredRooms}
+          data={filteredRooms.slice(0, 4)}
           keyExtractor={(item) => item.id}
           renderItem={renderRoom}
           contentContainerStyle={styles.roomList}
@@ -1253,11 +1272,15 @@ async function syncRoomCounts(roomId: string) {
               <Text style={styles.emptyTitle}>
                 {searchText.trim()
                   ? `No rooms matched '${searchText.trim()}'`
+                  : selectedFilter !== "All"
+                    ? `No ${selectedFilter} rooms are open.`
                   : "No rooms are open yet."}
               </Text>
               <Text style={styles.emptyCopy}>
                 {searchText.trim()
                   ? "Try a different vibe or clear the search."
+                  : selectedFilter !== "All"
+                    ? "Try another filter or view all rooms."
                   : "Start one and set the tone for tonight."}
               </Text>
             </View>
@@ -1281,20 +1304,17 @@ async function syncRoomCounts(roomId: string) {
           </TouchableOpacity>
         </View>
 
-        <View style={styles.matchTestCard}>
-          <View style={styles.quickIcon}>
-            <Icon name="sparkles" size={24} color="#FDB4D4" />
-          </View>
-
-          <View style={styles.quickTextBlock}>
-            <Text style={styles.quickTitle}>Match</Text>
-            <Text style={styles.quickSubtitle}>Test global 1-on-1 matching</Text>
-          </View>
-
-          <TouchableOpacity style={styles.matchTestButton} onPress={() => router.push("/match" as never)}>
-            <Text style={styles.surpriseText}>Open</Text>
-            <Icon name="chevronRight" size={15} color="#FDB4D4" />
-          </TouchableOpacity>
+        <View style={styles.statsPanel}>
+          {stats.map((stat, index) => (
+            <View key={stat.label} style={styles.statCell}>
+              <Icon name={stat.icon} size={24} color={index === 1 ? "#FF4FC3" : "#A855F7"} />
+              <Text style={styles.statValue}>{stat.value}</Text>
+              <Text style={styles.statLabel} numberOfLines={1}>
+                {stat.label}
+              </Text>
+              {index < stats.length - 1 && <View style={styles.statDivider} />}
+            </View>
+          ))}
         </View>
       </ScrollView>
 
@@ -1656,9 +1676,9 @@ async function syncRoomCounts(roomId: string) {
                 </View>
 
                 <View style={styles.createRoomSettingRow}>
-                  <View>
+                  <View style={styles.createRoomSettingCopy}>
                     <Text style={styles.createRoomSettingTitle}>Capacity</Text>
-                    <Text style={styles.createRoomSettingHint}>Maximum number of people</Text>
+                    <Text style={styles.createRoomSettingHint}>Type a number from 2 to 100</Text>
                   </View>
                   <View style={styles.createRoomStepper}>
                     <TouchableOpacity
@@ -1668,7 +1688,16 @@ async function syncRoomCounts(roomId: string) {
                     >
                       <Text style={styles.createRoomStepperSymbol}>-</Text>
                     </TouchableOpacity>
-                    <Text style={styles.createRoomStepperValue}>{maxUsers}</Text>
+                    <TextInput
+                      accessibilityLabel="Room capacity"
+                      keyboardType="number-pad"
+                      maxLength={3}
+                      onBlur={() => setMaxUsers(String(getCapacityValue(maxUsers)))}
+                      onChangeText={updateCapacity}
+                      selectTextOnFocus
+                      style={styles.createRoomCapacityInput}
+                      value={maxUsers}
+                    />
                     <TouchableOpacity
                       accessibilityLabel="Increase capacity"
                       style={styles.createRoomStepperButton}
@@ -1946,6 +1975,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: "row",
     marginBottom: 32,
+    marginTop: 16,
     paddingVertical: 20,
     paddingHorizontal: 12,
   },
@@ -2250,6 +2280,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: "row",
     gap: 14,
+    marginBottom: 32,
     marginTop: 12,
     padding: 14,
   },
@@ -2726,6 +2757,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "900",
   },
+  createRoomSettingCopy: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 12,
+  },
   createRoomSettingHint: {
     color: "#7F7587",
     fontSize: 11,
@@ -2750,11 +2786,18 @@ const styles = StyleSheet.create({
     fontSize: 21,
     fontWeight: "700",
   },
-  createRoomStepperValue: {
-    color: "#FFFFFF",
+  createRoomCapacityInput: {
+    backgroundColor: "#21152B",
+    borderColor: "#7C3AED",
+    borderRadius: 6,
+    borderWidth: 1,
+    color: "#C899FF",
     fontSize: 16,
     fontWeight: "900",
-    minWidth: 28,
+    height: 38,
+    minWidth: 48,
+    paddingHorizontal: 6,
+    paddingVertical: 0,
     textAlign: "center",
   },
   createRoomLocationBlock: {

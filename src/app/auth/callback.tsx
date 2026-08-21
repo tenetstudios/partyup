@@ -11,34 +11,113 @@ export default function AuthCallback() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!callbackUrl) return;
-
     let active = true;
+    let routed = false;
+    let routing = false;
 
-    async function finishSignIn() {
+    async function routeSignedInUser(userId: string, isAnonymous = false) {
+      if (!active || routed || routing) return;
+
+      routing = true;
+
       try {
-        const user = await completeOAuthSession(callbackUrl as string);
+        if (isAnonymous) {
+          routed = true;
+          router.replace("/home");
+          return;
+        }
+
         const { data: profile, error: profileError } = await supabase
           .from("profiles")
           .select("username")
-          .eq("id", user.id)
+          .eq("id", userId)
           .maybeSingle();
 
         if (profileError) throw profileError;
-        if (!active) return;
+        if (!active || routed) return;
 
+        routed = true;
         router.replace(profile?.username ? "/home" : "/profile");
+      } finally {
+        routing = false;
+      }
+    }
+
+    async function finishSignIn() {
+      try {
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+
+        if (sessionError) throw sessionError;
+        if (sessionData.session?.user) {
+          const user = sessionData.session.user;
+          await routeSignedInUser(user.id, Boolean(user.is_anonymous));
+          return;
+        }
+
+        const initialUrl = callbackUrl ?? (await Linking.getInitialURL());
+        if (!initialUrl) return;
+
+        const user = await completeOAuthSession(initialUrl);
+        await routeSignedInUser(user.id, Boolean(user.is_anonymous));
       } catch (reason) {
-        if (active) {
+        if (active && !routed) {
           setError(reason instanceof Error ? reason.message : "Google sign-in could not be completed.");
         }
       }
     }
 
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        void routeSignedInUser(session.user.id, Boolean(session.user.is_anonymous)).catch(
+          (reason) => {
+            if (active && !routed) {
+              setError(
+                reason instanceof Error
+                  ? reason.message
+                  : "Your profile could not be loaded after sign-in.",
+              );
+            }
+          },
+        );
+      }
+    });
+
     void finishSignIn();
+
+    const timeoutId = setTimeout(() => {
+      if (!active || routed) return;
+
+      void supabase.auth
+        .getSession()
+        .then(({ data, error: sessionError }) => {
+          if (!active || routed) return;
+
+          if (sessionError) {
+            setError(sessionError.message);
+            return;
+          }
+
+          if (data.session?.user) {
+            routed = true;
+            router.replace("/home");
+            return;
+          }
+
+          setError("The sign-in return was interrupted. Please try signing in again.");
+        })
+        .catch((reason) => {
+          if (active && !routed) {
+            setError(reason instanceof Error ? reason.message : "Sign-in could not be confirmed.");
+          }
+        });
+    }, 10000);
 
     return () => {
       active = false;
+      clearTimeout(timeoutId);
+      subscription.unsubscribe();
     };
   }, [callbackUrl]);
 
