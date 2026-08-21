@@ -483,11 +483,11 @@ function MatchCallView({
       }
 
       setKeepInTouchStatus("saved");
-      setKeepInTouchMessage("Saved. You'll connect if they choose the same.");
+      setKeepInTouchMessage("Request saved. You'll connect if they choose the same.");
     } catch (reason) {
       setKeepInTouchStatus(previousStatus);
       setKeepInTouchMessage(
-        reason instanceof Error ? reason.message : "Could not save Keep in Touch.",
+        reason instanceof Error ? reason.message : "Could not save your connection choice.",
       );
     }
   }
@@ -514,10 +514,10 @@ function MatchCallView({
     keepInTouchStatus === "connected"
       ? "Connected"
       : keepInTouchStatus === "saved"
-        ? "Saved"
+        ? "Request saved"
         : keepInTouchStatus === "saving"
           ? "Saving..."
-          : "Keep the spark";
+          : "Stay connected";
   const keepInTouchDisabled =
     keepInTouchStatus === "saving" || keepInTouchStatus === "connected";
 
@@ -528,14 +528,14 @@ function MatchCallView({
           <VideoTrack trackRef={remoteTrack} style={styles.video} />
         ) : (
           <View style={styles.placeholder}>
-            <Text style={styles.placeholderTitle}>Live vibe</Text>
+            <Text style={styles.placeholderTitle}>Connection live</Text>
             <Text style={styles.placeholderText}>{remotePlaceholderText}</Text>
           </View>
         )}
 
         <View style={styles.remoteBadge}>
           <View style={styles.badgeDot} />
-          <Text style={styles.badgeText}>VIBE LIVE</Text>
+          <Text style={styles.badgeText}>CONNECTION LIVE</Text>
         </View>
       </View>
 
@@ -551,7 +551,7 @@ function MatchCallView({
 
       <View style={styles.statusPanel}>
         <Text style={styles.statusLabel}>
-          {status === "connected" ? "VIBE LOCKED" : "LOCKING SIGNAL"}
+          {status === "connected" ? "CONNECTION LIVE" : "LOCKING SIGNAL"}
         </Text>
         <Text style={styles.statusText}>
           {roomName ? "Private 1:1 / signal live" : "Secure room starting"}
@@ -605,7 +605,7 @@ function MatchCallView({
           disabled={nextBusy}
         >
           <Ionicons name="play-skip-forward" size={17} color="#FFFFFF" />
-          <Text style={styles.controlText}>{nextBusy ? "Tuning..." : "Next vibe"}</Text>
+          <Text style={styles.controlText}>{nextBusy ? "Tuning..." : "Next match"}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity

@@ -49,6 +49,7 @@ export default function MatchScreen() {
   const [nextBusy, setNextBusy] = useState(false);
   const [poolLoading, setPoolLoading] = useState(Boolean(initialPoolId));
   const [activePool, setActivePool] = useState<MatchPool | null>(null);
+  const [eventRoomName, setEventRoomName] = useState<string | null>(null);
   const [searchIdentityId, setSearchIdentityId] = useState<string | null>(null);
   const [session, setSession] = useState<MatchSession | null>(null);
   const [user, setUser] = useState<User | null>(null);
@@ -61,7 +62,9 @@ export default function MatchScreen() {
   const isGuest = !hasAccount;
   const contextLabel =
     initialPoolId && (activePool?.pool_type === "event" || !activePool)
-      ? "Matching with people here"
+      ? eventRoomName
+        ? `Matching inside ${eventRoomName}`
+        : "Matching with people here"
       : null;
 
   const clearSubscription = useCallback(() => {
@@ -294,6 +297,30 @@ export default function MatchScreen() {
       mounted = false;
     };
   }, [initialPoolId]);
+
+  useEffect(() => {
+    if (!returnRoomId) return;
+
+    let mounted = true;
+
+    async function loadEventRoomName() {
+      const { data } = await supabase
+        .from("event_rooms")
+        .select("title")
+        .eq("id", returnRoomId)
+        .maybeSingle();
+
+      if (mounted) {
+        setEventRoomName(data?.title?.trim() || null);
+      }
+    }
+
+    void loadEventRoomName();
+
+    return () => {
+      mounted = false;
+    };
+  }, [returnRoomId]);
 
   useEffect(() => {
     if (matchState !== "searching" || !searchIdentityId) {
@@ -580,7 +607,7 @@ export default function MatchScreen() {
         <View style={styles.matchPanel}>
           <View style={styles.panelHeader}>
             <View style={styles.liveDot} />
-            <Text style={styles.panelHeaderText}>ELECTRIC FRIENDSHIP ENGINE</Text>
+            <Text style={styles.panelHeaderText}>ELECTRIC ICEBREAK ENGINE</Text>
           </View>
           {contextLabel && <Text style={styles.contextText}>{contextLabel}</Text>}
           <Text style={styles.title}>Find your next spark.</Text>
@@ -593,13 +620,15 @@ export default function MatchScreen() {
           <View style={styles.signalGrid}>
             <View style={styles.signalTile}>
               <Ionicons name="sparkles" size={17} color="#F9A8D4" />
-              <Text style={styles.signalLabel}>VIBE</Text>
+              <Text style={styles.signalLabel}>ENERGY</Text>
               <Text style={styles.signalValue}>Live</Text>
             </View>
             <View style={styles.signalTile}>
               <Ionicons name="people" size={17} color="#C4B5FD" />
               <Text style={styles.signalLabel}>SOCIAL RADIUS</Text>
-              <Text style={styles.signalValue}>{contextLabel ? "This event" : "PartyUp"}</Text>
+              <Text style={styles.signalValue} numberOfLines={2}>
+                {eventRoomName ?? (contextLabel ? "Event room" : "PartyUp")}
+              </Text>
             </View>
             <View style={styles.signalTile}>
               <Ionicons name="flash" size={17} color="#6EE7B7" />
@@ -615,7 +644,7 @@ export default function MatchScreen() {
           >
             <Ionicons name="flash" size={18} color="#FFFFFF" />
             <Text style={styles.primaryButtonText}>
-              {busy || poolLoading ? "Tuning your signal..." : "Find my vibe"}
+              {busy || poolLoading ? "Tuning your signal..." : "Start matching"}
             </Text>
           </TouchableOpacity>
 
@@ -641,7 +670,7 @@ export default function MatchScreen() {
           <Text style={styles.searchCopy}>Checking live energy, timing, and party readiness.</Text>
 
           <View style={styles.scanRow}>
-            <Text style={styles.scanItem}>VIBE / SCANNING</Text>
+            <Text style={styles.scanItem}>ENERGY / SCANNING</Text>
             <Text style={styles.scanItem}>TIMING / SCANNING</Text>
           </View>
 
@@ -689,7 +718,7 @@ export default function MatchScreen() {
           >
             <Ionicons name="flash" size={18} color="#FFFFFF" />
             <Text style={styles.primaryButtonText}>
-              {busy || nextBusy ? "Tuning..." : "Find the next vibe"}
+              {busy || nextBusy ? "Tuning..." : "Find someone new"}
             </Text>
           </TouchableOpacity>
 
