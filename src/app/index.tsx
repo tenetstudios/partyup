@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { supabase } from "../../lib/supabase";
 import * as WebBrowser from "expo-web-browser";
+import { completeOAuthSession } from "../lib/oauthSession";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -128,48 +129,17 @@ if (!callbackUrl) {
   return;
 }
 
-  const fragment = callbackUrl.split("#")[1];
-
-  if (!fragment) {
+  try {
+    const signedInUser = await completeOAuthSession(callbackUrl);
+    await routeSignedInUser(signedInUser);
+  } catch (reason) {
     setLoading(false);
-    Alert.alert("Google session error", "Missing callback fragment.");
+    Alert.alert(
+      "Google session error",
+      reason instanceof Error ? reason.message : "Could not confirm your signed-in session.",
+    );
     return;
   }
-
-  const params = new URLSearchParams(fragment);
-
-  const access_token = params.get("access_token");
-  const refresh_token = params.get("refresh_token");
-
-  if (!access_token || !refresh_token) {
-    setLoading(false);
-    Alert.alert("Google session error", "Missing tokens.");
-    return;
-  }
-
-
-const { data: setSessionData, error: sessionError } =
-  await supabase.auth.setSession({
-    access_token,
-    refresh_token,
-  });
-
-
-  if (sessionError) {
-    setLoading(false);
-    Alert.alert("Google session error", sessionError.message);
-    return;
-  }
-
-  const signedInUser = setSessionData.session?.user ?? setSessionData.user;
-
-  if (!signedInUser) {
-    setLoading(false);
-    Alert.alert("Google session error", "Could not confirm your signed-in session.");
-    return;
-  }
-
-  await routeSignedInUser(signedInUser);
   setLoading(false);
 
 };
