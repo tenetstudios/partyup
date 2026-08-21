@@ -1,4 +1,5 @@
 import type { RealtimeChannel, User } from "@supabase/supabase-js";
+import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
@@ -539,8 +540,12 @@ export default function MatchScreen() {
   if (authLoading) {
     return (
       <View style={styles.page}>
-        <ActivityIndicator color="#E9D5FF" />
-        <Text style={styles.muted}>Checking sign-in...</Text>
+        <View style={styles.ambientGlow} />
+        <View style={styles.matchPanel}>
+          <ActivityIndicator color="#F472B6" size="large" />
+          <Text style={styles.stateEyebrow}>Warming up the signal</Text>
+          <Text style={styles.muted}>Checking your PartyUp access...</Text>
+        </View>
       </View>
     );
   }
@@ -570,93 +575,137 @@ export default function MatchScreen() {
 
   return (
     <View style={styles.page}>
+      <View style={styles.ambientGlow} />
       {matchState === "idle" && (
-        <>
-          <Text style={styles.title}>Match</Text>
+        <View style={styles.matchPanel}>
+          <View style={styles.panelHeader}>
+            <View style={styles.liveDot} />
+            <Text style={styles.panelHeaderText}>ELECTRIC FRIENDSHIP ENGINE</Text>
+          </View>
           {contextLabel && <Text style={styles.contextText}>{contextLabel}</Text>}
+          <Text style={styles.title}>Find your next spark.</Text>
           <Text style={styles.subtitle}>
-            {contextLabel ? "Meet someone else in this event." : "Meet someone new."}
+            {contextLabel
+              ? "Tune into someone sharing this room, right now."
+              : "Drop into a live one-to-one and see where the energy goes."}
           </Text>
+
+          <View style={styles.signalGrid}>
+            <View style={styles.signalTile}>
+              <Ionicons name="sparkles" size={17} color="#F9A8D4" />
+              <Text style={styles.signalLabel}>VIBE</Text>
+              <Text style={styles.signalValue}>Live</Text>
+            </View>
+            <View style={styles.signalTile}>
+              <Ionicons name="people" size={17} color="#C4B5FD" />
+              <Text style={styles.signalLabel}>SOCIAL RADIUS</Text>
+              <Text style={styles.signalValue}>{contextLabel ? "This event" : "PartyUp"}</Text>
+            </View>
+            <View style={styles.signalTile}>
+              <Ionicons name="flash" size={17} color="#6EE7B7" />
+              <Text style={styles.signalLabel}>MOMENTUM</Text>
+              <Text style={styles.signalValue}>Ready</Text>
+            </View>
+          </View>
 
           <TouchableOpacity
             style={[styles.primaryButton, (busy || poolLoading) && styles.disabledButton]}
             onPress={startMatching}
             disabled={busy || poolLoading}
           >
+            <Ionicons name="flash" size={18} color="#FFFFFF" />
             <Text style={styles.primaryButtonText}>
-              {busy || poolLoading ? "Starting..." : "Start Matching"}
+              {busy || poolLoading ? "Tuning your signal..." : "Find my vibe"}
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.secondaryButton} onPress={returnHome}>
+            <Ionicons name="arrow-back" size={18} color="#E9D5FF" />
             <Text style={styles.secondaryButtonText}>
               {returnRoomId ? "Return to Event" : "Return Home"}
             </Text>
           </TouchableOpacity>
-        </>
+        </View>
       )}
 
       {matchState === "searching" && (
-        <>
-          <ActivityIndicator color="#E9D5FF" />
+        <View style={[styles.matchPanel, styles.centeredPanel]}>
+          <View style={styles.radarWrap}>
+            <View style={styles.radarRingOuter} />
+            <View style={styles.radarRingInner} />
+            <View style={styles.radarCore} />
+          </View>
+          <Text style={styles.stateEyebrow}>SIGNAL SWEEPING</Text>
           {contextLabel && <Text style={styles.contextText}>{contextLabel}</Text>}
-          <Text style={styles.title}>
-            {nextBusy ? "Finding someone new..." : "Finding someone..."}
-          </Text>
+          <Text style={styles.title}>{nextBusy ? "Retuning the room..." : "Reading the room..."}</Text>
+          <Text style={styles.searchCopy}>Checking live energy, timing, and party readiness.</Text>
+
+          <View style={styles.scanRow}>
+            <Text style={styles.scanItem}>VIBE / SCANNING</Text>
+            <Text style={styles.scanItem}>TIMING / SCANNING</Text>
+          </View>
 
           <TouchableOpacity
             style={[styles.secondaryButton, busy && styles.disabledButton]}
             onPress={cancelSearch}
             disabled={busy}
           >
+            <Ionicons name="close" size={18} color="#E9D5FF" />
             <Text style={styles.secondaryButtonText}>
-              {busy ? "Cancelling..." : "Cancel"}
+              {busy ? "Leaving the radar..." : "Leave the radar"}
             </Text>
           </TouchableOpacity>
-        </>
+        </View>
       )}
 
       {matchState === "matched" && (
-        <>
-          <Text style={styles.title}>Matched</Text>
+        <View style={[styles.matchPanel, styles.centeredPanel]}>
+          <Ionicons name="alert-circle" size={34} color="#FCA5A5" />
+          <Text style={styles.title}>Signal interrupted</Text>
           {contextLabel && <Text style={styles.contextText}>{contextLabel}</Text>}
           <Text style={styles.errorText}>The matched session could not be opened.</Text>
 
           <TouchableOpacity style={styles.secondaryButton} onPress={returnHome}>
+            <Ionicons name="arrow-back" size={18} color="#E9D5FF" />
             <Text style={styles.secondaryButtonText}>
               {returnRoomId ? "Return to Event" : "Return Home"}
             </Text>
           </TouchableOpacity>
-        </>
+        </View>
       )}
 
       {matchState === "disconnected" && (
-        <>
-          <Text style={styles.title}>Connection ended</Text>
+        <View style={[styles.matchPanel, styles.centeredPanel]}>
+          <Text style={styles.stateEyebrow}>MOMENTUM RESET</Text>
+          <Text style={styles.title}>That moment wrapped.</Text>
           {contextLabel && <Text style={styles.contextText}>{contextLabel}</Text>}
           <Text style={styles.subtitle}>{disconnectedMessage ?? "Connection ended."}</Text>
+          <Text style={styles.nextSignal}>Your next connection is one signal away.</Text>
 
           <TouchableOpacity
             style={[styles.primaryButton, (busy || nextBusy) && styles.disabledButton]}
             onPress={findSomeoneElse}
             disabled={busy || nextBusy}
           >
+            <Ionicons name="flash" size={18} color="#FFFFFF" />
             <Text style={styles.primaryButtonText}>
-              {busy || nextBusy ? "Finding..." : "Find Someone Else"}
+              {busy || nextBusy ? "Tuning..." : "Find the next vibe"}
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.secondaryButton} onPress={returnHome}>
+            <Ionicons name="arrow-back" size={18} color="#E9D5FF" />
             <Text style={styles.secondaryButtonText}>
               {returnRoomId ? "Return to Event" : "Return Home"}
             </Text>
           </TouchableOpacity>
-        </>
+        </View>
       )}
 
       {matchState === "error" && (
-        <>
-          <Text style={styles.title}>Match</Text>
+        <View style={[styles.matchPanel, styles.centeredPanel]}>
+          <Ionicons name="alert-circle" size={34} color="#FCA5A5" />
+          <Text style={styles.title}>Signal dropped</Text>
           {contextLabel && <Text style={styles.contextText}>{contextLabel}</Text>}
           <Text style={styles.errorText}>{error ?? "Something went wrong."}</Text>
 
@@ -665,15 +714,17 @@ export default function MatchScreen() {
             onPress={startMatching}
             disabled={busy || poolLoading}
           >
-            <Text style={styles.primaryButtonText}>{poolLoading ? "Loading..." : "Retry"}</Text>
+            <Ionicons name="refresh" size={18} color="#FFFFFF" />
+            <Text style={styles.primaryButtonText}>{poolLoading ? "Retuning..." : "Tune again"}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.secondaryButton} onPress={returnHome}>
+            <Ionicons name="arrow-back" size={18} color="#E9D5FF" />
             <Text style={styles.secondaryButtonText}>
               {returnRoomId ? "Return to Event" : "Return Home"}
             </Text>
           </TouchableOpacity>
-        </>
+        </View>
       )}
     </View>
   );
@@ -681,38 +732,84 @@ export default function MatchScreen() {
 
 const styles = StyleSheet.create({
   page: {
+    alignItems: "center",
     flex: 1,
     backgroundColor: "#050509",
     justifyContent: "center",
-    padding: 24,
+    overflow: "hidden",
+    paddingHorizontal: 18,
+    paddingVertical: 28,
+  },
+  ambientGlow: {
+    backgroundColor: "rgba(190, 24, 93, 0.2)",
+    borderRadius: 220,
+    height: 360,
+    position: "absolute",
+    right: -190,
+    top: -110,
+    width: 360,
+  },
+  matchPanel: {
+    backgroundColor: "rgba(17, 8, 28, 0.97)",
+    borderColor: "rgba(244, 114, 182, 0.24)",
+    borderRadius: 8,
+    borderWidth: 1,
+    maxWidth: 520,
+    padding: 22,
+    width: "100%",
+  },
+  centeredPanel: {
+    alignItems: "center",
+  },
+  panelHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 22,
+  },
+  panelHeaderText: {
+    color: "#F9A8D4",
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0,
+  },
+  liveDot: {
+    backgroundColor: "#34D399",
+    borderRadius: 5,
+    height: 9,
+    width: 9,
   },
   title: {
     color: "#FFFFFF",
-    fontSize: 36,
+    fontSize: 34,
     fontWeight: "900",
-    marginTop: 14,
-    textAlign: "center",
+    lineHeight: 39,
+    marginTop: 10,
   },
   subtitle: {
-    color: "#C4B5FD",
-    fontSize: 18,
-    fontWeight: "700",
-    marginTop: 10,
-    marginBottom: 28,
-    textAlign: "center",
+    color: "#C8C1D3",
+    fontSize: 16,
+    fontWeight: "600",
+    lineHeight: 23,
+    marginTop: 12,
   },
   contextText: {
     color: "#F9A8D4",
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: "900",
-    marginTop: 10,
-    textAlign: "center",
+    marginTop: 6,
     textTransform: "uppercase",
+  },
+  stateEyebrow: {
+    color: "#F9A8D4",
+    fontSize: 11,
+    fontWeight: "900",
+    marginTop: 18,
   },
   muted: {
     color: "#A1A1AA",
     fontWeight: "700",
-    marginTop: 14,
+    marginTop: 10,
     textAlign: "center",
   },
   sessionText: {
@@ -734,13 +831,15 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     alignItems: "center",
-    alignSelf: "center",
     backgroundColor: "#EC4899",
     borderRadius: 999,
+    flexDirection: "row",
+    gap: 8,
     justifyContent: "center",
-    marginTop: 10,
-    minHeight: 52,
+    marginTop: 24,
+    minHeight: 54,
     paddingHorizontal: 26,
+    width: "100%",
   },
   primaryButtonText: {
     color: "#FFFFFF",
@@ -749,15 +848,17 @@ const styles = StyleSheet.create({
   },
   secondaryButton: {
     alignItems: "center",
-    alignSelf: "center",
     backgroundColor: "#181425",
     borderColor: "rgba(255,255,255,0.12)",
     borderRadius: 999,
     borderWidth: 1,
+    flexDirection: "row",
+    gap: 8,
     justifyContent: "center",
-    marginTop: 14,
-    minHeight: 48,
+    marginTop: 12,
+    minHeight: 50,
     paddingHorizontal: 22,
+    width: "100%",
   },
   secondaryButtonText: {
     color: "#E9D5FF",
@@ -766,5 +867,91 @@ const styles = StyleSheet.create({
   },
   disabledButton: {
     opacity: 0.55,
+  },
+  signalGrid: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 24,
+  },
+  signalTile: {
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderColor: "rgba(255,255,255,0.1)",
+    borderRadius: 6,
+    borderWidth: 1,
+    flex: 1,
+    minHeight: 92,
+    padding: 10,
+  },
+  signalLabel: {
+    color: "#777181",
+    fontSize: 9,
+    fontWeight: "900",
+    marginTop: 9,
+  },
+  signalValue: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "900",
+    marginTop: 3,
+  },
+  radarWrap: {
+    alignItems: "center",
+    height: 120,
+    justifyContent: "center",
+    width: 120,
+  },
+  radarRingOuter: {
+    borderColor: "rgba(244,114,182,0.28)",
+    borderRadius: 60,
+    borderWidth: 1,
+    height: 120,
+    position: "absolute",
+    width: 120,
+  },
+  radarRingInner: {
+    borderColor: "rgba(196,181,253,0.42)",
+    borderRadius: 42,
+    borderWidth: 1,
+    height: 84,
+    position: "absolute",
+    width: 84,
+  },
+  radarCore: {
+    backgroundColor: "#EC4899",
+    borderRadius: 18,
+    height: 36,
+    width: 36,
+  },
+  searchCopy: {
+    color: "#A7A1B4",
+    fontSize: 14,
+    lineHeight: 21,
+    marginTop: 12,
+    textAlign: "center",
+  },
+  scanRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 22,
+  },
+  scanItem: {
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderColor: "rgba(255,255,255,0.1)",
+    borderRadius: 6,
+    borderWidth: 1,
+    color: "#E9D5FF",
+    flex: 1,
+    fontSize: 9,
+    fontWeight: "900",
+    paddingHorizontal: 9,
+    paddingVertical: 11,
+    textAlign: "center",
+  },
+  nextSignal: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "800",
+    marginTop: 2,
+    textAlign: "center",
   },
 });

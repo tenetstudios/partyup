@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import {
@@ -516,7 +517,7 @@ function MatchCallView({
         ? "Saved"
         : keepInTouchStatus === "saving"
           ? "Saving..."
-          : "Keep in Touch";
+          : "Keep the spark";
   const keepInTouchDisabled =
     keepInTouchStatus === "saving" || keepInTouchStatus === "connected";
 
@@ -527,13 +528,14 @@ function MatchCallView({
           <VideoTrack trackRef={remoteTrack} style={styles.video} />
         ) : (
           <View style={styles.placeholder}>
-            <Text style={styles.placeholderTitle}>Your Match</Text>
+            <Text style={styles.placeholderTitle}>Live vibe</Text>
             <Text style={styles.placeholderText}>{remotePlaceholderText}</Text>
           </View>
         )}
 
         <View style={styles.remoteBadge}>
-          <Text style={styles.badgeText}>Your Match</Text>
+          <View style={styles.badgeDot} />
+          <Text style={styles.badgeText}>VIBE LIVE</Text>
         </View>
       </View>
 
@@ -549,16 +551,11 @@ function MatchCallView({
 
       <View style={styles.statusPanel}>
         <Text style={styles.statusLabel}>
-          {status === "connected" ? "Matched" : "Connecting"}
+          {status === "connected" ? "VIBE LOCKED" : "LOCKING SIGNAL"}
         </Text>
-        <Text style={styles.statusText} numberOfLines={1}>
-          Session: {sessionId}
+        <Text style={styles.statusText}>
+          {roomName ? "Private 1:1 / signal live" : "Secure room starting"}
         </Text>
-        {roomName && (
-          <Text style={styles.statusText} numberOfLines={1}>
-            Room: {roomName}
-          </Text>
-        )}
       </View>
 
       {(mediaMessage || message) && (
@@ -584,6 +581,11 @@ function MatchCallView({
           onPress={saveKeepInTouch}
           disabled={keepInTouchDisabled}
         >
+          <Ionicons
+            name={keepInTouchStatus === "connected" ? "checkmark" : "sparkles"}
+            size={17}
+            color={keepInTouchStatus === "saved" || keepInTouchStatus === "connected" ? "#050509" : "#FFFFFF"}
+          />
           <Text
             style={[
               styles.keepInTouchText,
@@ -602,25 +604,28 @@ function MatchCallView({
           onPress={moveNext}
           disabled={nextBusy}
         >
-          <Text style={styles.controlText}>{nextBusy ? "Finding..." : "Next"}</Text>
+          <Ionicons name="play-skip-forward" size={17} color="#FFFFFF" />
+          <Text style={styles.controlText}>{nextBusy ? "Tuning..." : "Next vibe"}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
+          accessibilityLabel={microphoneEnabled ? "Mute microphone" : "Unmute microphone"}
           style={[styles.controlButton, !microphoneEnabled && styles.controlButtonOff]}
           onPress={toggleMicrophone}
         >
-          <Text style={styles.controlText}>{microphoneEnabled ? "Mute" : "Unmute"}</Text>
+          <Ionicons name={microphoneEnabled ? "mic" : "mic-off"} size={18} color="#FFFFFF" />
         </TouchableOpacity>
 
         <TouchableOpacity
+          accessibilityLabel={cameraEnabled ? "Turn camera off" : "Turn camera on"}
           style={[styles.controlButton, !cameraEnabled && styles.controlButtonOff]}
           onPress={toggleCamera}
         >
-          <Text style={styles.controlText}>{cameraEnabled ? "Camera Off" : "Camera On"}</Text>
+          <Ionicons name={cameraEnabled ? "videocam" : "videocam-off"} size={18} color="#FFFFFF" />
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.leaveButton} onPress={leaveMatch}>
-          <Text style={styles.controlText}>Leave</Text>
+        <TouchableOpacity accessibilityLabel="Leave match" style={styles.leaveButton} onPress={leaveMatch}>
+          <Ionicons name="exit-outline" size={19} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
     </View>
@@ -633,6 +638,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "900",
   },
+  badgeDot: {
+    backgroundColor: "#34D399",
+    borderRadius: 4,
+    height: 7,
+    width: 7,
+  },
   callPage: {
     backgroundColor: "#000000",
     flex: 1,
@@ -641,7 +652,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#EC4899",
     borderRadius: 999,
-    flex: 1,
+    width: 48,
     justifyContent: "center",
     minHeight: 48,
   },
@@ -654,12 +665,17 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   controls: {
+    backgroundColor: "rgba(5,5,9,0.82)",
+    borderColor: "rgba(255,255,255,0.12)",
+    borderRadius: 8,
+    borderWidth: 1,
     bottom: 28,
     elevation: 40,
     flexDirection: "row",
     gap: 10,
     left: 16,
     position: "absolute",
+    padding: 8,
     right: 16,
     zIndex: 40,
   },
@@ -680,6 +696,8 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.14)",
     borderRadius: 999,
     borderWidth: 1,
+    flexDirection: "row",
+    gap: 8,
     justifyContent: "center",
     minHeight: 46,
     paddingHorizontal: 18,
@@ -757,6 +775,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#7C3AED",
     borderRadius: 999,
     flex: 1,
+    flexDirection: "row",
+    gap: 7,
     justifyContent: "center",
     minHeight: 48,
   },
@@ -829,9 +849,12 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   remoteBadge: {
+    alignItems: "center",
     backgroundColor: "rgba(0,0,0,0.62)",
     borderRadius: 999,
     bottom: 100,
+    flexDirection: "row",
+    gap: 7,
     left: 18,
     paddingHorizontal: 14,
     paddingVertical: 8,
@@ -877,7 +900,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     left: 16,
-    maxWidth: "60%",
+    maxWidth: "58%",
     padding: 12,
     position: "absolute",
     top: 56,
