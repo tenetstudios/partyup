@@ -917,7 +917,8 @@ const { error } = await supabase.from("room_messages").insert({
     setEmojiPickerOpen(false);
   }
 
-  async function updatePresence() {
+async function updatePresence() {
+  if (room?.status === "ended") return;
   // Validate room ID is a real UUID
   if (!isValidUUID(roomId)) {
     return;
@@ -1329,6 +1330,32 @@ const requestedStreamers = [
     }
 
     await requestToStream();
+  }
+
+  if (room.status === "ended") {
+    return (
+      <ScrollView style={styles.page} contentContainerStyle={styles.container}>
+        <TouchableOpacity onPress={() => router.replace("/home")}>
+          <Text style={styles.mobileTopBack}>Back to Home</Text>
+        </TouchableOpacity>
+        <View style={styles.endedEventCard}>
+          <Text style={styles.endedEventEyebrow}>PAST EVENT</Text>
+          <Text style={styles.endedEventTitle}>{room.title}</Text>
+          <Text style={styles.endedEventCopy}>The live room is closed. Its Memories, recap, attendance, and Event Series history remain available.</Text>
+          <TouchableOpacity style={styles.endedEventPrimary} onPress={openMemories}>
+            <Text style={styles.endedEventPrimaryText}>View Memories</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.endedEventSecondary} onPress={() => router.push(`/recap/${room.id}` as never)}>
+            <Text style={styles.endedEventSecondaryText}>Open Recap</Text>
+          </TouchableOpacity>
+          {currentUserId === room.host_id && (
+            <TouchableOpacity style={styles.endedEventSecondary} onPress={openManageRoom}>
+              <Text style={styles.endedEventSecondaryText}>Event Settings</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </ScrollView>
+    );
   }
 
   const streamActionLabel = isLocalPublishing
@@ -2184,6 +2211,22 @@ const requestedStreamers = [
   );
 }
 const styles = StyleSheet.create({
+  endedEventCard: {
+    alignItems: "center",
+    backgroundColor: "#120B1A",
+    borderColor: "rgba(196, 154, 255, 0.24)",
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 34,
+    padding: 26,
+  },
+  endedEventEyebrow: { color: "#FF83B8", fontSize: 11, fontWeight: "900" },
+  endedEventTitle: { color: "#FFFFFF", fontSize: 30, fontWeight: "900", marginTop: 8, textAlign: "center" },
+  endedEventCopy: { color: "#AAA4B8", fontSize: 15, lineHeight: 23, marginTop: 12, textAlign: "center" },
+  endedEventPrimary: { alignItems: "center", alignSelf: "stretch", backgroundColor: "#7C3AED", borderRadius: 8, marginTop: 24, paddingVertical: 14 },
+  endedEventPrimaryText: { color: "#FFFFFF", fontWeight: "900" },
+  endedEventSecondary: { alignItems: "center", alignSelf: "stretch", borderColor: "rgba(255,255,255,0.16)", borderRadius: 8, borderWidth: 1, marginTop: 10, paddingVertical: 14 },
+  endedEventSecondaryText: { color: "#FFFFFF", fontWeight: "900" },
   page: {
     flex: 1,
     backgroundColor: "#050509",

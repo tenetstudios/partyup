@@ -28,6 +28,7 @@ type Room = {
   id: string;
   title: string;
   host_id: string;
+  status: string;
 };
 
 type MemoryMediaType = "image" | "video";
@@ -129,7 +130,7 @@ export default function RoomMemoriesScreen() {
 
       const { data: roomData, error: roomError } = await supabase
         .from("event_rooms")
-        .select("id, title, host_id")
+        .select("id, title, host_id, status")
         .eq("id", roomId)
         .maybeSingle();
 
@@ -318,7 +319,8 @@ export default function RoomMemoriesScreen() {
   }
 
   const isHost = !!room && room.host_id === currentUserId;
-  const canUpload = !!currentIdentityId;
+  const ended = room?.status === "ended";
+  const canUpload = !!currentIdentityId && !ended;
 
   return (
     <ScrollView style={styles.page} contentContainerStyle={styles.container}>
@@ -340,7 +342,7 @@ export default function RoomMemoriesScreen() {
         <Text style={styles.subtitle}>Photos and clips from this room.</Text>
       </View>
 
-      <View style={styles.addPanel}>
+      {!ended ? <View style={styles.addPanel}>
         <View>
           <Text style={styles.addTitle}>Add Memory</Text>
           <Text style={styles.addCopy}>Post a photo or short clip from the event.</Text>
@@ -369,7 +371,7 @@ export default function RoomMemoriesScreen() {
         {!canUpload && (
           <Text style={styles.helperText}>Sign in and join the room to add Memories.</Text>
         )}
-      </View>
+      </View> : <View style={styles.addPanel}><Text style={styles.addTitle}>Past event Memories</Text><Text style={styles.addCopy}>These Memories are retained. New uploads are closed because the event has ended.</Text></View>}
 
       {pendingMemory && (
         <View style={styles.previewPanel}>
@@ -423,16 +425,16 @@ export default function RoomMemoriesScreen() {
         <View style={styles.emptyPanel}>
           <Text style={styles.emptyTitle}>No memories yet.</Text>
           <Text style={styles.emptyCopy}>
-            Be the first to add a photo or clip from this room.
+            {ended ? "No Memories were posted before this event ended." : "Be the first to add a photo or clip from this room."}
           </Text>
-          <TouchableOpacity
+          {!ended && <TouchableOpacity
             style={[styles.postButton, !canUpload && styles.buttonDisabled]}
             onPress={() => pickMemory("image")}
             disabled={!canUpload}
           >
             <Ionicons name="add" size={20} color="#FFFFFF" />
             <Text style={styles.postButtonText}>Add Memory</Text>
-          </TouchableOpacity>
+          </TouchableOpacity>}
         </View>
       ) : (
         <View style={styles.grid}>

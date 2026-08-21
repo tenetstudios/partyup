@@ -20,6 +20,7 @@ type Room = {
   queue_count: number;
   max_users: number;
   is_private: boolean;
+  status?: string;
 };
 
 type UserRow = {
@@ -415,7 +416,7 @@ async function deleteRoom() {
 
   Alert.alert(
     "Delete room?",
-    "This will permanently delete the room and OBS ingress.",
+    "This permanently removes the room, its Memory records, saved Memories, attendance, and event history. Use End Event for completed events.",
     [
       {
         text: "Cancel",
@@ -451,6 +452,31 @@ setTimeout(() => {
   );
 }
 
+async function endEvent() {
+  if (!room || !isHost || room.status === "ended") return;
+
+  Alert.alert(
+    "End this event?",
+    "The room will become read-only. Memories, recaps, attendance, and Event Series history will be kept.",
+    [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "End Event",
+        style: "destructive",
+        onPress: async () => {
+          await supabase.functions.invoke("delete-ingress", { body: { roomName: room.id } }).catch(() => undefined);
+          const { error } = await supabase.functions.invoke("end-event-room", { body: { roomId: room.id } });
+          if (error) {
+            Alert.alert("Could not end event", error.message);
+            return;
+          }
+          router.replace(`/room/${room.id}`);
+        },
+      },
+    ],
+  );
+}
+
   if (!room) {
     return (
       <View style={styles.page}>
@@ -469,6 +495,19 @@ setTimeout(() => {
         <Text style={styles.heading}>No Access</Text>
         <Text style={styles.empty}>Only hosts and bouncers can manage this room.</Text>
       </View>
+    );
+  }
+
+  if (room.status === "ended") {
+    return (
+      <ScrollView style={styles.page} contentContainerStyle={styles.container}>
+        <Text style={styles.heading}>Event Ended</Text>
+        <Text style={styles.subheading}>{room.title} is read-only. Memories, recaps, attendance, and series history are retained.</Text>
+        <TouchableOpacity style={styles.privacyButton} onPress={() => router.replace(`/room/${room.id}`)}>
+          <Text style={styles.buttonText}>Back to Past Event</Text>
+        </TouchableOpacity>
+        {isHost && <TouchableOpacity style={styles.deleteButton} onPress={deleteRoom}><Text style={styles.buttonText}>Delete Exceptional/Test Room</Text></TouchableOpacity>}
+      </ScrollView>
     );
   }
 
@@ -809,6 +848,21 @@ setTimeout(() => {
       </Text>
     </TouchableOpacity>
 
+    {room.status !== "ended" ? (
+      <View style={styles.advancedCard}>
+        <Text style={styles.name}>Event lifecycle</Text>
+        <Text style={styles.meta}>End the event to retain Memories, recaps, attendance, and series history in a read-only past event.</Text>
+        <TouchableOpacity style={styles.endEventButton} onPress={endEvent}>
+          <Text style={styles.buttonText}>End Event</Text>
+        </TouchableOpacity>
+      </View>
+    ) : (
+      <View style={styles.advancedCard}>
+        <Text style={styles.name}>Event ended</Text>
+        <Text style={styles.meta}>History and Memories are retained.</Text>
+      </View>
+    )}
+
     <TouchableOpacity
       style={styles.deleteButton}
       onPress={deleteRoom}
@@ -921,6 +975,13 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     borderWidth: 1,
     borderColor: "rgba(168,85,247,0.18)",
+  },
+  endEventButton: {
+    alignItems: "center",
+    backgroundColor: "#7C3AED",
+    borderRadius: 8,
+    marginTop: 14,
+    paddingVertical: 13,
   },
 
   rank: {

@@ -53,7 +53,7 @@ export default function RoomsScreen() {
   );
 
   const recentRooms = useMemo(
-    () => rooms.filter((room) => room.host_id !== userId).slice(0, 4),
+    () => rooms.filter((room) => room.host_id !== userId && room.status !== "ended").slice(0, 4),
     [rooms, userId]
   );
 

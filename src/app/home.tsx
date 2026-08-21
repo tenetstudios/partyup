@@ -624,6 +624,7 @@ const stats = useMemo(() => {
   const { data, error } = await supabase
     .from("event_rooms")
     .select("*")
+    .in("status", ["live", "scheduled"])
     .order("created_at", { ascending: false });
 
   if (error) {
