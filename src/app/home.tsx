@@ -24,6 +24,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
+import { resolveMyEventRecaps } from "../../lib/recaps";
 
 type RoomType = "party" | "concert" | "dj_set" | "popup" | "sports" | "watch_party";
 type RoomMode = "irl" | "livestream" | "hybrid";
@@ -496,6 +497,11 @@ useEffect(() => {
 
     if (!user || !mounted) return;
 
+    try {
+      await resolveMyEventRecaps();
+    } catch (error) {
+      console.log("Event recap resolution error:", error);
+    }
     await fetchUnreadCount(user.id);
 
     channel = supabase

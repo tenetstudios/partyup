@@ -8,6 +8,7 @@ export type NotificationType =
   | "friend_live"
   | "friend_created_room"
   | "room_approved"
+  | "event_recap"
   | "verification_approved";
 
 export interface Notification {
@@ -18,6 +19,7 @@ export interface Notification {
   title: string;
   body: string;
   room_id: string | null;
+  recap_room_id: string | null;
   is_read: boolean;
   created_at: string;
 }

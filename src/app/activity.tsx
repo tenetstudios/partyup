@@ -3,9 +3,9 @@ import { useEffect, useState } from "react";
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import {
   type Notification,
-  markAllNotificationsAsRead,
   markNotificationAsRead,
 } from "../../lib/notifications";
+import { resolveMyEventRecaps } from "../../lib/recaps";
 import { supabase } from "../../lib/supabase";
 
 type FollowingRoom = {
@@ -52,8 +52,12 @@ export default function ActivityScreen() {
       
       await loadFollowingFeed();
       await loadInviteFeed();
+      try {
+        await resolveMyEventRecaps();
+      } catch (error) {
+        console.error("Failed to resolve event recaps:", error);
+      }
       await loadNotifications();
-      await markAllNotificationsAsRead(user.id);
 
       // Subscribe to realtime notifications
       const subscription = supabase
@@ -135,7 +139,9 @@ export default function ActivityScreen() {
       "room_approved",
     ];
 
-    if (roomTypes.includes(notification.type) && notification.room_id) {
+    if (notification.recap_room_id || (notification.type === "event_recap" && notification.room_id)) {
+      router.push(`/recap/${notification.recap_room_id || notification.room_id}` as never);
+    } else if (roomTypes.includes(notification.type) && notification.room_id) {
       router.push(`/room/${notification.room_id}`);
     } else if (notification.type === "follow" && notification.actor_id) {
       router.push(`/user/${notification.actor_id}`);
@@ -321,6 +327,7 @@ export default function ActivityScreen() {
       friend_live: "LIVE",
       friend_created_room: "NEW ROOM",
       room_approved: "APPROVED",
+      event_recap: "RECAP",
       verification_approved: "VERIFIED",
     };
     return labels[type] || "NOTIFICATION";
@@ -335,6 +342,7 @@ export default function ActivityScreen() {
       friend_live: { backgroundColor: "rgba(255, 82, 146, 0.22)" },
       friend_created_room: { backgroundColor: "rgba(168, 85, 247, 0.18)" },
       room_approved: { backgroundColor: "rgba(34, 197, 94, 0.18)" },
+      event_recap: { backgroundColor: "rgba(168, 85, 247, 0.28)" },
       verification_approved: { backgroundColor: "rgba(34, 197, 94, 0.18)" },
     };
     return badgeStyles[type] || { backgroundColor: "rgba(124, 58, 237, 0.18)" };
@@ -427,11 +435,11 @@ export default function ActivityScreen() {
               <View
                 style={[
                   styles.badge,
-                  getNotificationBadgeStyle(notification.type),
+                  getNotificationBadgeStyle(notification.recap_room_id ? "event_recap" : notification.type),
                 ]}
               >
                 <Text style={styles.badgeText}>
-                  {getNotificationBadgeLabel(notification.type)}
+                  {getNotificationBadgeLabel(notification.recap_room_id ? "event_recap" : notification.type)}
                 </Text>
               </View>
 
