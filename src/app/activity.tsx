@@ -7,6 +7,7 @@ import {
 } from "../../lib/notifications";
 import { resolveMyEventRecaps } from "../../lib/recaps";
 import { supabase } from "../../lib/supabase";
+import { FollowedSeriesEvent, formatSeriesDate } from "../../lib/eventSeries";
 
 type FollowingRoom = {
   id: string;
@@ -36,6 +37,7 @@ type InviteDetails = RoomInviteRow & {
 
 export default function ActivityScreen() {
   const [followingRooms, setFollowingRooms] = useState<FollowingRoom[]>([]);
+  const [seriesEvents, setSeriesEvents] = useState<FollowedSeriesEvent[]>([]);
   const [invites, setInvites] = useState<InviteDetails[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string>("");
@@ -51,6 +53,7 @@ export default function ActivityScreen() {
       setCurrentUserId(user.id);
       
       await loadFollowingFeed();
+      await loadSeriesFeed();
       await loadInviteFeed();
       try {
         await resolveMyEventRecaps();
@@ -116,6 +119,16 @@ export default function ActivityScreen() {
     }
 
     setNotifications((data || []) as Notification[]);
+  }
+
+  async function loadSeriesFeed() {
+    const { data, error } = await supabase.rpc("get_my_followed_series_events");
+    if (error) {
+      console.error("Failed to load followed series:", error.message);
+      setSeriesEvents([]);
+      return;
+    }
+    setSeriesEvents((data || []) as FollowedSeriesEvent[]);
   }
 
   async function handleNotificationTap(notification: Notification) {
@@ -411,6 +424,14 @@ export default function ActivityScreen() {
         ))
       )}
 
+      {seriesEvents.length > 0 && <>
+        <Text style={styles.sectionTitle}>Series You Follow</Text>
+        {seriesEvents.map((event) => <View key={event.id} style={styles.card}>
+          <View style={styles.cardTop}><TouchableOpacity onPress={() => router.push(`/series/${event.series_id}` as never)}><Text style={styles.seriesName}>{event.series_name}</Text></TouchableOpacity><View style={styles.badge}><Text style={styles.badgeText}>{event.status.toUpperCase()}</Text></View></View>
+          <TouchableOpacity onPress={() => router.push(`/room/${event.id}`)}><Text style={styles.cardTitle}>{event.title}</Text><Text style={styles.cardBody}>{formatSeriesDate(event.event_date)}</Text></TouchableOpacity>
+        </View>)}
+      </>}
+
       <Text style={styles.sectionTitle}>Notifications</Text>
 
       {notifications.length === 0 ? (
@@ -567,6 +588,12 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: "900",
     marginBottom: 6,
+  },
+  seriesName: {
+    color: "#C99CFF",
+    fontSize: 11,
+    fontWeight: "900",
+    textTransform: "uppercase",
   },
   cardBody: {
     color: "#B8B2C8",

@@ -27,6 +27,7 @@ import {
   type SavedMemoryGroup,
 } from "../../../lib/memories";
 import { supabase } from "../../../lib/supabase";
+import { EventSeriesSummary, formatSeriesDate, getHostEventSeries } from "../../../lib/eventSeries";
 
 type ProfileView = {
   id: string;
@@ -44,6 +45,7 @@ export default function UserProfile() {
 
   const [profile, setProfile] = useState<ProfileView | null>(null);
   const [hostData, setHostData] = useState<HostReputationProfile | null>(null);
+  const [hostSeries, setHostSeries] = useState<EventSeriesSummary[]>([]);
   const [currentUserId, setCurrentUserId] = useState("");
   const [followers, setFollowers] = useState(0);
   const [following, setFollowing] = useState(0);
@@ -63,6 +65,7 @@ export default function UserProfile() {
 
     try {
       const loadedHostData = await getHostReputationProfile(profileId);
+      setHostSeries(await getHostEventSeries(profileId).catch(() => []));
       setHostData(loadedHostData);
 
       if (!loadedHostData) {
@@ -290,6 +293,7 @@ export default function UserProfile() {
         </View>
 
         {hostData && <HostEvidenceSection data={hostData} />}
+        <HostSeriesSection series={hostSeries} isOwner={currentUserId === profile.id} />
 
         {currentUserId === profile.id && (
           <ProfileMemoriesSection groups={memoryGroups} />
@@ -300,6 +304,13 @@ export default function UserProfile() {
       )}
     </ScrollView>
   );
+}
+
+function HostSeriesSection({ series, isOwner }: { series: EventSeriesSummary[]; isOwner: boolean }) {
+  if (series.length === 0 && !isOwner) return null;
+  return <View style={styles.seriesCard}><View style={styles.seriesHeader}><View style={styles.seriesHeaderCopy}><Text style={styles.hostEvidenceEyebrow}>EVENT SERIES</Text><Text style={styles.seriesTitle}>Recurring events</Text></View>{isOwner ? <TouchableOpacity style={styles.seriesCreateButton} onPress={() => router.push("/series/new" as never)}><Text style={styles.seriesCreateText}>Create</Text></TouchableOpacity> : null}</View>
+    {series.length === 0 ? <View style={styles.hostEventEmpty}><Text style={styles.hostEventEmptyCopy}>Create a series to keep your audience and event history together.</Text></View> : series.map((item) => <TouchableOpacity key={item.id} style={styles.seriesItem} onPress={() => router.push(`/series/${item.id}` as never)}>{item.cover_image_url ? <Image source={{ uri: item.cover_image_url }} style={styles.seriesImage} /> : <View style={styles.seriesImageFallback}><Text style={styles.hostEventImageFallbackText}>SERIES</Text></View>}<View style={styles.seriesCopy}><Text numberOfLines={1} style={styles.seriesItemTitle}>{item.name}</Text><Text style={styles.seriesMeta}>{item.event_count} events / {item.follower_count} followers</Text><Text style={styles.seriesNext}>{item.next_event_at ? `Next: ${formatSeriesDate(item.next_event_at)}` : "Next date coming soon"}</Text></View></TouchableOpacity>)}
+  </View>;
 }
 
 function HostEvidenceSection({ data }: { data: HostReputationProfile }) {
@@ -712,6 +723,31 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginTop: 14,
   },
+  seriesCard: {
+    backgroundColor: "#11111A",
+    borderColor: "#2A2140",
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 18,
+    padding: 18,
+  },
+  seriesHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 14,
+  },
+  seriesHeaderCopy: { flex: 1 },
+  seriesTitle: { color: "#FFFFFF", fontSize: 22, fontWeight: "900", marginTop: 5 },
+  seriesCreateButton: { backgroundColor: "#7C3AED", borderRadius: 7, paddingHorizontal: 14, paddingVertical: 10 },
+  seriesCreateText: { color: "#FFFFFF", fontSize: 12, fontWeight: "900" },
+  seriesItem: { backgroundColor: "rgba(255,255,255,0.04)", borderRadius: 8, flexDirection: "row", minHeight: 105, marginTop: 10, overflow: "hidden" },
+  seriesImage: { width: 96, height: "100%" },
+  seriesImageFallback: { alignItems: "center", backgroundColor: "#23152F", justifyContent: "center", width: 96 },
+  seriesCopy: { flex: 1, justifyContent: "center", padding: 12 },
+  seriesItemTitle: { color: "#FFFFFF", fontSize: 16, fontWeight: "900" },
+  seriesMeta: { color: "#AAA4B8", fontSize: 11, fontWeight: "800", marginTop: 6 },
+  seriesNext: { color: "#C9A6FF", fontSize: 10, fontWeight: "800", marginTop: 8 },
   hostEventSection: {
     marginTop: 22,
   },

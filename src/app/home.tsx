@@ -25,6 +25,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import { resolveMyEventRecaps } from "../../lib/recaps";
+import { EventSeriesSummary, getMyEventSeries } from "../../lib/eventSeries";
 
 type RoomType = "party" | "concert" | "dj_set" | "popup" | "sports" | "watch_party";
 type RoomMode = "irl" | "livestream" | "hybrid";
@@ -338,6 +339,8 @@ export default function Home() {
   const [roomStatus, setRoomStatus] = useState<CreateRoomStatus>("live");
   const [venueName, setVenueName] = useState("");
   const [coverImageUri, setCoverImageUri] = useState<string | null>(null);
+  const [eventSeries, setEventSeries] = useState<EventSeriesSummary[]>([]);
+  const [seriesId, setSeriesId] = useState("");
   const [currentCreateStep, setCurrentCreateStep] = useState<CreateRoomStep>(0);
   const [scheduledDate, setScheduledDate] = useState(() => getDefaultSchedule().date);
   const [scheduledHour, setScheduledHour] = useState(() => getDefaultSchedule().hour);
@@ -356,6 +359,7 @@ export default function Home() {
   useEffect(() => {
     if (showCreateSheet) {
       setCurrentLocation(null);
+      getMyEventSeries().then(setEventSeries).catch(() => setEventSeries([]));
     }
   }, [showCreateSheet]);
 
@@ -861,6 +865,7 @@ async function syncRoomCounts(roomId: string) {
           latitude: roomMode === "livestream" ? null : currentLocation?.latitude ?? null,
           longitude: roomMode === "livestream" ? null : currentLocation?.longitude ?? null,
           last_active_at: new Date().toISOString(),
+          series_id: seriesId || null,
         })
         .select("id")
         .single();
@@ -899,6 +904,7 @@ async function syncRoomCounts(roomId: string) {
       setRoomStatus("live");
       setVenueName("");
       setCoverImageUri(null);
+      setSeriesId("");
       setCurrentLocation(null);
       setIsPrivateRoom(false);
       setCurrentCreateStep(0);
@@ -1759,6 +1765,28 @@ async function syncRoomCounts(roomId: string) {
                   </View>
                   <Icon name="chevronRight" size={18} color="#71697D" />
                 </TouchableOpacity>
+
+                <View style={styles.createRoomSeriesBlock}>
+                  <View style={styles.createRoomSeriesHeader}>
+                    <View style={styles.createRoomPrivacyCopy}>
+                      <Text style={styles.createRoomSettingTitle}>Add to Event Series</Text>
+                      <Text style={styles.createRoomSettingHint}>Optional. One-off events stay independent.</Text>
+                    </View>
+                    <TouchableOpacity onPress={() => router.push("/series/new" as never)}>
+                      <Text style={styles.createRoomSeriesCreate}>Create</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.createRoomSeriesOptions}>
+                    <TouchableOpacity style={[styles.createRoomSeriesOption, !seriesId && styles.createRoomSeriesOptionActive]} onPress={() => setSeriesId("")}>
+                      <Text style={[styles.createRoomSeriesOptionText, !seriesId && styles.createRoomSeriesOptionTextActive]}>One-off</Text>
+                    </TouchableOpacity>
+                    {eventSeries.map((item) => (
+                      <TouchableOpacity key={item.id} style={[styles.createRoomSeriesOption, seriesId === item.id && styles.createRoomSeriesOptionActive]} onPress={() => setSeriesId(item.id)}>
+                        <Text numberOfLines={1} style={[styles.createRoomSeriesOptionText, seriesId === item.id && styles.createRoomSeriesOptionTextActive]}>{item.name}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
 
                 <View style={styles.createRoomSettingRow}>
                   <View style={styles.createRoomPrivacyCopy}>
@@ -2853,6 +2881,47 @@ const styles = StyleSheet.create({
   createRoomCoverCopy: {
     flex: 1,
     paddingHorizontal: 12,
+  },
+  createRoomSeriesBlock: {
+    backgroundColor: "#15101A",
+    borderColor: "#302339",
+    borderRadius: 8,
+    borderWidth: 1,
+    padding: 12,
+  },
+  createRoomSeriesHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+  },
+  createRoomSeriesCreate: {
+    color: "#C899FF",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  createRoomSeriesOptions: {
+    gap: 8,
+    paddingTop: 12,
+  },
+  createRoomSeriesOption: {
+    backgroundColor: "#211827",
+    borderColor: "#453053",
+    borderRadius: 7,
+    borderWidth: 1,
+    maxWidth: 180,
+    paddingHorizontal: 13,
+    paddingVertical: 10,
+  },
+  createRoomSeriesOptionActive: {
+    backgroundColor: "#6D35A5",
+    borderColor: "#B875FF",
+  },
+  createRoomSeriesOptionText: {
+    color: "#B9AFBF",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  createRoomSeriesOptionTextActive: {
+    color: "#FFFFFF",
   },
   createRoomPrivacyCopy: {
     flex: 1,
