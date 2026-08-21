@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 import { supabase } from "../../../lib/supabase";
-import { completeOAuthSession } from "../../lib/oauthSession";
+import { completeOAuthSession, hasOAuthResponse } from "../../lib/oauthSession";
 
 export default function AuthCallback() {
   const callbackUrl = Linking.useURL();
@@ -14,6 +14,7 @@ export default function AuthCallback() {
     let active = true;
     let routed = false;
     let routing = false;
+    let processingOAuthReturn = Boolean(callbackUrl && hasOAuthResponse(callbackUrl));
 
     async function routeSignedInUser(userId: string, isAnonymous = false) {
       if (!active || routed || routing) return;
@@ -45,6 +46,15 @@ export default function AuthCallback() {
 
     async function finishSignIn() {
       try {
+        const initialUrl = callbackUrl ?? (await Linking.getInitialURL());
+
+        if (initialUrl && hasOAuthResponse(initialUrl)) {
+          processingOAuthReturn = true;
+          const user = await completeOAuthSession(initialUrl);
+          await routeSignedInUser(user.id, Boolean(user.is_anonymous));
+          return;
+        }
+
         const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
 
         if (sessionError) throw sessionError;
@@ -54,11 +64,6 @@ export default function AuthCallback() {
           return;
         }
 
-        const initialUrl = callbackUrl ?? (await Linking.getInitialURL());
-        if (!initialUrl) return;
-
-        const user = await completeOAuthSession(initialUrl);
-        await routeSignedInUser(user.id, Boolean(user.is_anonymous));
       } catch (reason) {
         if (active && !routed) {
           setError(reason instanceof Error ? reason.message : "Google sign-in could not be completed.");
@@ -69,7 +74,7 @@ export default function AuthCallback() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
+      if (session?.user && !processingOAuthReturn) {
         void routeSignedInUser(session.user.id, Boolean(session.user.is_anonymous)).catch(
           (reason) => {
             if (active && !routed) {

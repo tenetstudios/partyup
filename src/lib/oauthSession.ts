@@ -20,13 +20,18 @@ function readCallbackParams(callbackUrl: string) {
   return params;
 }
 
+export function hasOAuthResponse(callbackUrl: string) {
+  const params = readCallbackParams(callbackUrl);
+
+  return Boolean(
+    params.get("error") ||
+      params.get("error_description") ||
+      params.get("code") ||
+      (params.get("access_token") && params.get("refresh_token")),
+  );
+}
+
 async function establishOAuthSession(callbackUrl: string): Promise<User> {
-  const { data: existingSession, error: existingSessionError } =
-    await supabase.auth.getSession();
-
-  if (existingSessionError) throw existingSessionError;
-  if (existingSession.session?.user) return existingSession.session.user;
-
   const params = readCallbackParams(callbackUrl);
   const providerError = params.get("error_description") ?? params.get("error");
 

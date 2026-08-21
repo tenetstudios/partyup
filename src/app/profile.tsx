@@ -238,7 +238,19 @@ export default function Profile() {
         <TouchableOpacity
   style={styles.signOutButton}
   onPress={async () => {
-    await supabase.auth.signOut();
+    const { error } = await supabase.auth.signOut({ scope: "local" });
+
+    if (error) {
+      Alert.alert("Sign-out error", error.message);
+      return;
+    }
+
+    const { data } = await supabase.auth.getSession();
+    if (data.session) {
+      Alert.alert("Sign-out error", "The local session could not be cleared. Please try again.");
+      return;
+    }
+
     router.replace("/");
   }}
 >

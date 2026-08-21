@@ -97,6 +97,9 @@ return () => {
     options: {
       redirectTo,
       skipBrowserRedirect: true,
+      queryParams: {
+        prompt: "select_account",
+      },
     },
   });
 
