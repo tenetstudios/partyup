@@ -20,6 +20,7 @@ import { supabase } from "../../../../lib/supabase";
 import LiveKitRoomView from "../../../components/LiveKitRoomView";
 import RoomMissionCard from "../../../components/RoomMissionCard";
 import { getOrCreateEventMatchPool } from "../../../lib/matchmaking";
+import { friendlyChatError } from "../../../../lib/chatModeration";
 
 type RoomType = "party" | "concert" | "dj_set" | "popup" | "sports" | "watch_party";
 type RoomMode = "irl" | "livestream" | "hybrid";
@@ -78,6 +79,7 @@ type Message = {
   display_name: string | null;
   message: string;
   created_at: string;
+  removed_at?: string | null;
 };
 
 type RoomActivity = {
@@ -602,7 +604,7 @@ async function loadHostProfile(hostId: string) {
       return;
     }
 
-    setMessages(data || []);
+    setMessages(((data || []) as Message[]).filter((message) => !message.removed_at));
   }
 
   async function loadActivities() {
@@ -890,27 +892,48 @@ function openMemories() {
       return;
     }
 
-    const { data: profile } = await supabase
-  .from("profiles")
-  .select("username")
-  .eq("id", user.id)
-  .maybeSingle();
-
-const { error } = await supabase.from("room_messages").insert({
-  room_id: roomId,
-  user_id: user.id,
-  display_name:
-    profile?.username || `Guest ${user.id.slice(0, 4)}`,
-  message: messageText.trim(),
+const { error } = await supabase.rpc("send_room_message", {
+  p_room_id: roomId,
+  p_message: messageText.trim(),
 });
 
     if (error) {
-      window.alert(error.message);
+      window.alert(friendlyChatError(error.message));
       return;
     }
 
     setMessageText("");
     loadMessages();
+  }
+
+  function moderateMessage(message: Message, action: "remove" | "mute_5m") {
+    const title = action === "remove" ? "Remove this message?" : "Mute this person for 5 minutes?";
+    const body = action === "remove"
+      ? "The message will disappear from this room."
+      : "They will be unable to post in this room for 5 minutes.";
+
+    Alert.alert(title, body, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: action === "remove" ? "Remove" : "Mute",
+        style: "destructive",
+        onPress: async () => {
+          const { error } = await supabase.rpc("moderate_room_message", {
+            p_message_id: message.id,
+            p_action: action,
+          });
+
+          if (error) {
+            Alert.alert("Moderation failed", error.message);
+            return;
+          }
+
+          if (action === "remove") {
+            setMessages((current) => current.filter((item) => item.id !== message.id));
+          }
+        },
+      },
+    ]);
   }
 
   function insertEmoji(emoji: string) {
@@ -1545,6 +1568,18 @@ const requestedStreamers = [
       <Text style={[styles.messageText, !isDesktop && styles.messageTextMobile]}>
         {item.message}
       </Text>
+      {canManageQueue && (
+        <View style={styles.messageModerationActions}>
+          <TouchableOpacity style={styles.removeMessageButton} onPress={() => moderateMessage(item as Message, "remove")}>
+            <Text style={styles.removeMessageText}>Remove</Text>
+          </TouchableOpacity>
+          {isHost && item.user_id !== currentUserId && item.user_id !== room.host_id && (
+            <TouchableOpacity style={styles.muteMessageButton} onPress={() => moderateMessage(item as Message, "mute_5m")}>
+              <Text style={styles.muteMessageText}>Mute 5m</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
     </View>
   );
 
@@ -3130,6 +3165,37 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 19,
     marginLeft: 39,
+  },
+  messageModerationActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginLeft: 39,
+    marginTop: 7,
+  },
+  removeMessageButton: {
+    borderColor: "rgba(252,165,165,0.35)",
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+  },
+  removeMessageText: {
+    color: "#FCA5A5",
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  muteMessageButton: {
+    borderColor: "rgba(196,181,253,0.4)",
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+  },
+  muteMessageText: {
+    color: "#DDD6FE",
+    fontSize: 11,
+    fontWeight: "900",
   },
   typingPill: {
     backgroundColor: "rgba(124,58,237,0.18)",

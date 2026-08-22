@@ -14,6 +14,7 @@ import {
 import QRCode from "react-native-qrcode-svg";
 import { supabase } from "../../../../lib/supabase";
 import RoomMissionManager from "../../../components/RoomMissionManager";
+import RoomChatModerationSettings from "../../../components/RoomChatModerationSettings";
 
 type Tab = "queue" | "inside" | "streams" | "bouncers" | "settings";
 
@@ -1026,6 +1027,7 @@ async function endEvent() {
           {isHost && <RoomDescriptionEditor roomId={room.id} />}
           {isHost && <RoomEntryQrCard roomId={room.id} roomTitle={room.title} />}
           {isHost && <RoomAnnouncementEditor roomId={room.id} />}
+          {isHost && <RoomChatModerationSettings roomId={room.id} />}
 
           <View style={styles.card}>
             <Text style={styles.name}>Capacity</Text>
