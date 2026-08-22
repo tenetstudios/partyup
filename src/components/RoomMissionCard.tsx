@@ -114,6 +114,9 @@ export default function RoomMissionCard({ roomId }: { roomId: string }) {
   const remaining = now ? getMissionTimeRemaining(mission.ends_at, now) : null;
   const isAnimalPack = mission.mission_type === "animal_pack";
   const plural = animalState ? (animalDetails[animalState.assignment_key]?.plural ?? "pack members") : "pack members";
+  const tokenRefreshSeconds = encounterToken && now
+    ? Math.max(0, Math.ceil((Date.parse(encounterToken.expires_at) - now - 5_000) / 1000))
+    : null;
 
   async function markComplete() {
     if (busy || mission!.viewer_completed || remaining?.expired) return;
@@ -210,7 +213,7 @@ export default function RoomMissionCard({ roomId }: { roomId: string }) {
           <TouchableOpacity style={styles.closeButton} onPress={() => setMode("details")}><Text style={styles.closeText}>Close</Text></TouchableOpacity>
           <Text style={styles.qrAnimal}>{animalState?.assignment_key}</Text>
           <Text style={styles.qrInstruction}>Scan this when you find another {animalState ? animalDetails[animalState.assignment_key]?.singular ?? "pack member" : "pack member"}.</Text>
-          {encounterToken ? <View style={styles.qrBox}><QRCode value={encounterToken.qr_payload} size={240} /><Text style={styles.shortCode}>{encounterToken.short_code}</Text><Text style={styles.refreshing}>Refreshing automatically</Text></View> : <Text style={styles.loading}>Creating secure code…</Text>}
+          {encounterToken ? <View style={styles.qrBox}><QRCode value={encounterToken.qr_payload} size={240} /><Text style={styles.shortCode}>{encounterToken.short_code}</Text><Text style={styles.refreshing}>{tokenRefreshSeconds === 0 ? "Refreshing…" : `Refreshes in ${tokenRefreshSeconds ?? "–"} seconds`}</Text></View> : <Text style={styles.loading}>Creating secure code…</Text>}
         </View>
       </Modal>}
 
