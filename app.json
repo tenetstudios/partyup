@@ -26,7 +26,7 @@
         "backgroundColor": "#050509"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.partyup2525.PartyUp"
+      "package": "io.partyup.app"
     },
     "web": {
       "output": "static",

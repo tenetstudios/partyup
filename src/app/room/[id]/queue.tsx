@@ -1,13 +1,17 @@
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
+import * as Linking from "expo-linking";
+import { useCallback, useEffect, useState } from "react";
 import {
   Alert,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
+import QRCode from "react-native-qrcode-svg";
 import { supabase } from "../../../../lib/supabase";
 import RoomMissionManager from "../../../components/RoomMissionManager";
 
@@ -40,6 +44,194 @@ type UserRow = {
   created_at?: string;
 };
 
+type ActiveAnnouncement = {
+  id: string;
+  title: string;
+  message: string | null;
+};
+
+function RoomDescriptionEditor({ roomId }: { roomId: string }) {
+  const [description, setDescription] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    void supabase
+      .from("event_rooms")
+      .select("description")
+      .eq("id", roomId)
+      .single()
+      .then(({ data }) => setDescription(data?.description || ""));
+  }, [roomId]);
+
+  async function saveDescription() {
+    if (saving) return;
+    setSaving(true);
+    const { error } = await supabase
+      .from("event_rooms")
+      .update({ description: description.trim() || null })
+      .eq("id", roomId);
+    setSaving(false);
+    Alert.alert(error ? "Could not save description" : "Room description saved", error?.message);
+  }
+
+  return (
+    <View style={styles.setupCard}>
+      <Text style={styles.name}>Room description</Text>
+      <Text style={styles.meta}>Shown to guests before and after they enter the room.</Text>
+      <TextInput
+        value={description}
+        onChangeText={setDescription}
+        maxLength={1000}
+        multiline
+        numberOfLines={4}
+        placeholder="Describe this room..."
+        placeholderTextColor="#71717A"
+        style={styles.descriptionInput}
+      />
+      <TouchableOpacity style={styles.purplePillButton} onPress={() => void saveDescription()} disabled={saving}>
+        <Text style={styles.buttonText}>{saving ? "Saving..." : "Save Description"}</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function RoomEntryQrCard({ roomId, roomTitle }: { roomId: string; roomTitle: string }) {
+  const entryUrl = Linking.createURL(`/room/${roomId}`);
+
+  async function shareEntry() {
+    try {
+      await Share.share({ message: `Join ${roomTitle} on PartyUp: ${entryUrl}`, url: entryUrl });
+    } catch {
+      Alert.alert("Share unavailable", "The room link could not be shared right now.");
+    }
+  }
+
+  return (
+    <View style={styles.setupCard}>
+      <Text style={styles.name}>Room QR code</Text>
+      <Text style={styles.meta}>Guests with PartyUp can scan this code to open the room.</Text>
+      <View style={styles.qrBox}><QRCode value={entryUrl} size={190} /></View>
+      <TouchableOpacity style={styles.purplePillButton} onPress={() => void shareEntry()}>
+        <Text style={styles.buttonText}>Share Room Link</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function RoomAnnouncementEditor({ roomId }: { roomId: string }) {
+  const [announcement, setAnnouncement] = useState<ActiveAnnouncement | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [title, setTitle] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const loadAnnouncement = useCallback(async () => {
+    const { data } = await supabase.rpc("get_active_room_announcement", { p_room_id: roomId });
+    const row = Array.isArray(data) ? data[0] : data;
+    setAnnouncement((row as ActiveAnnouncement | null) || null);
+  }, [roomId]);
+
+  useEffect(() => {
+    void loadAnnouncement();
+  }, [loadAnnouncement]);
+
+  async function publishAnnouncement() {
+    if (!title.trim() || busy) {
+      if (!title.trim()) Alert.alert("Announcement title required");
+      return;
+    }
+    setBusy(true);
+    const { error } = await supabase.rpc("publish_room_announcement", {
+      p_room_id: roomId,
+      p_title: title.trim(),
+      p_message: message.trim() || null,
+      p_cta_label: null,
+      p_cta_url: null,
+      p_expires_at: null,
+    });
+    setBusy(false);
+    if (error) {
+      Alert.alert("Could not publish announcement", error.message);
+      return;
+    }
+    setCreating(false);
+    setTitle("");
+    setMessage("");
+    await loadAnnouncement();
+  }
+
+  function confirmEndAnnouncement() {
+    if (!announcement || busy) return;
+    Alert.alert("End announcement?", "It will disappear from the live room.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "End",
+        style: "destructive",
+        onPress: async () => {
+          setBusy(true);
+          const { error } = await supabase.rpc("end_room_announcement", { p_announcement_id: announcement.id });
+          setBusy(false);
+          if (error) {
+            Alert.alert("Could not end announcement", error.message);
+            return;
+          }
+          setAnnouncement(null);
+        },
+      },
+    ]);
+  }
+
+  return (
+    <View style={styles.setupCard}>
+      <Text style={styles.name}>Announcement</Text>
+      <Text style={styles.meta}>Share a timely update with everyone viewing the room.</Text>
+      {announcement ? (
+        <View style={styles.announcementPreview}>
+          <Text style={styles.announcementBadge}>ACTIVE</Text>
+          <Text style={styles.announcementTitle}>{announcement.title}</Text>
+          {announcement.message ? <Text style={styles.meta}>{announcement.message}</Text> : null}
+          <TouchableOpacity style={styles.secondaryPillButton} onPress={confirmEndAnnouncement} disabled={busy}>
+            <Text style={styles.secondaryPillText}>{busy ? "Ending..." : "End Announcement"}</Text>
+          </TouchableOpacity>
+        </View>
+      ) : creating ? (
+        <View>
+          <TextInput
+            value={title}
+            onChangeText={setTitle}
+            maxLength={120}
+            placeholder="DJ starts in 10 minutes"
+            placeholderTextColor="#71717A"
+            style={styles.singleLineInput}
+          />
+          <TextInput
+            value={message}
+            onChangeText={setMessage}
+            maxLength={500}
+            multiline
+            numberOfLines={3}
+            placeholder="Main stage — stay close."
+            placeholderTextColor="#71717A"
+            style={styles.descriptionInput}
+          />
+          <View style={styles.inlineActions}>
+            <TouchableOpacity style={styles.purplePillButton} onPress={() => void publishAnnouncement()} disabled={busy}>
+              <Text style={styles.buttonText}>{busy ? "Publishing..." : "Publish Announcement"}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.secondaryPillButton} onPress={() => setCreating(false)} disabled={busy}>
+              <Text style={styles.secondaryPillText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : (
+        <TouchableOpacity style={styles.purplePillButton} onPress={() => setCreating(true)}>
+          <Text style={styles.buttonText}>Create Announcement</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
+
 export default function ManageRoomPage() {
   const { id } = useLocalSearchParams();
   const roomId = String(id);
@@ -51,6 +243,8 @@ export default function ManageRoomPage() {
   const [currentUserId, setCurrentUserId] = useState("");
   const [myRole, setMyRole] = useState<string | null>(null);
   const [roomDeleted, setRoomDeleted] = useState(false);
+  const [afterEventMessage, setAfterEventMessage] = useState("");
+  const [closeoutBusy, setCloseoutBusy] = useState(false);
 
   useEffect(() => {
   if (roomDeleted) return;
@@ -87,6 +281,15 @@ export default function ManageRoomPage() {
     supabase.removeChannel(channel);
   };
 }, [roomId, roomDeleted]);
+
+  useEffect(() => {
+    void supabase
+      .from("room_recap_messages")
+      .select("message")
+      .eq("room_id", roomId)
+      .maybeSingle()
+      .then(({ data }) => setAfterEventMessage(data?.message || ""));
+  }, [roomId]);
 
   async function loadAll() {
     await loadCurrentUser();
@@ -454,20 +657,31 @@ setTimeout(() => {
 }
 
 async function endEvent() {
-  if (!room || !isHost || room.status === "ended") return;
+  if (!room || !isHost || room.status === "ended" || closeoutBusy) return;
 
   Alert.alert(
-    "End this event?",
-    "The room will become read-only. Memories, recaps, attendance, and Event Series history will be kept.",
+    "Save message and end this event?",
+    "Your optional after-event message will be saved first. The room will then become read-only while Memories, recaps, attendance, and Event Series history are kept.",
     [
       { text: "Cancel", style: "cancel" },
       {
         text: "End Event",
         style: "destructive",
         onPress: async () => {
+          setCloseoutBusy(true);
+          const { error: messageError } = await supabase.rpc("set_room_recap_message", {
+            p_room_id: room.id,
+            p_message: afterEventMessage,
+          });
+          if (messageError) {
+            setCloseoutBusy(false);
+            Alert.alert("Could not save after-event message", messageError.message);
+            return;
+          }
           await supabase.functions.invoke("delete-ingress", { body: { roomName: room.id } }).catch(() => undefined);
           const { error } = await supabase.functions.invoke("end-event-room", { body: { roomId: room.id } });
           if (error) {
+            setCloseoutBusy(false);
             Alert.alert("Could not end event", error.message);
             return;
           }
@@ -809,7 +1023,9 @@ async function endEvent() {
         <View>
           <Text style={styles.sectionTitle}>Room Settings</Text>
 
-          <RoomMissionManager roomId={room.id} isHost={isHost} />
+          {isHost && <RoomDescriptionEditor roomId={room.id} />}
+          {isHost && <RoomEntryQrCard roomId={room.id} roomTitle={room.title} />}
+          {isHost && <RoomAnnouncementEditor roomId={room.id} />}
 
           <View style={styles.card}>
             <Text style={styles.name}>Capacity</Text>
@@ -823,6 +1039,22 @@ async function endEvent() {
             <Text style={styles.meta}>{queue.length} waiting</Text>
           </View>
 
+          {isHost && (
+  <>
+    <TouchableOpacity
+      style={styles.privacyButton}
+      onPress={toggleRoomPrivacy}
+    >
+      <Text style={styles.buttonText}>
+        {room.is_private
+          ? "Make Room Public"
+          : "Make Room Private"}
+      </Text>
+    </TouchableOpacity>
+
+  </>
+)}
+    <RoomMissionManager roomId={room.id} isHost={isHost} />
           {isHost && (
   <>
     <View style={styles.advancedCard}>
@@ -841,23 +1073,23 @@ async function endEvent() {
       </TouchableOpacity>
     </View>
 
-    <TouchableOpacity
-      style={styles.privacyButton}
-      onPress={toggleRoomPrivacy}
-    >
-      <Text style={styles.buttonText}>
-        {room.is_private
-          ? "Make Room Public"
-          : "Make Room Private"}
-      </Text>
-    </TouchableOpacity>
-
     {room.status !== "ended" ? (
-      <View style={styles.advancedCard}>
-        <Text style={styles.name}>Event lifecycle</Text>
-        <Text style={styles.meta}>End the event to retain Memories, recaps, attendance, and series history in a read-only past event.</Text>
+      <View style={styles.closeoutCard}>
+        <Text style={styles.closeoutEyebrow}>FINAL STEP</Text>
+        <Text style={styles.name}>Event closeout</Text>
+        <Text style={styles.meta}>Leave guests an optional note in their recap, then end the event.</Text>
+        <TextInput
+          value={afterEventMessage}
+          onChangeText={setAfterEventMessage}
+          maxLength={500}
+          multiline
+          numberOfLines={4}
+          placeholder="Thanks for coming. See you next time."
+          placeholderTextColor="#71717A"
+          style={styles.descriptionInput}
+        />
         <TouchableOpacity style={styles.endEventButton} onPress={endEvent}>
-          <Text style={styles.buttonText}>End Event</Text>
+          <Text style={styles.buttonText}>{closeoutBusy ? "Saving & ending..." : afterEventMessage.trim() ? "Save Message & End Event" : "End Event"}</Text>
         </TouchableOpacity>
       </View>
     ) : (
@@ -980,10 +1212,121 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(168,85,247,0.18)",
   },
+  setupCard: {
+    backgroundColor: "rgba(17, 16, 27, 0.96)",
+    borderColor: "rgba(168,85,247,0.3)",
+    borderRadius: 22,
+    borderWidth: 1,
+    marginBottom: 14,
+    padding: 18,
+  },
+  descriptionInput: {
+    backgroundColor: "#08080D",
+    borderColor: "rgba(255,255,255,0.1)",
+    borderRadius: 14,
+    borderWidth: 1,
+    color: "#FFFFFF",
+    marginTop: 14,
+    minHeight: 104,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    textAlignVertical: "top",
+  },
+  singleLineInput: {
+    backgroundColor: "#08080D",
+    borderColor: "rgba(255,255,255,0.1)",
+    borderRadius: 14,
+    borderWidth: 1,
+    color: "#FFFFFF",
+    marginTop: 14,
+    minHeight: 48,
+    paddingHorizontal: 14,
+  },
+  purplePillButton: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: "#7C3AED",
+    borderColor: "#A78BFA",
+    borderRadius: 999,
+    borderWidth: 1,
+    marginTop: 14,
+    minHeight: 46,
+    justifyContent: "center",
+    paddingHorizontal: 20,
+  },
+  secondaryPillButton: {
+    alignItems: "center",
+    borderColor: "rgba(196,181,253,0.45)",
+    borderRadius: 999,
+    borderWidth: 1,
+    marginTop: 14,
+    minHeight: 46,
+    justifyContent: "center",
+    paddingHorizontal: 18,
+  },
+  secondaryPillText: {
+    color: "#E9D5FF",
+    fontWeight: "900",
+  },
+  inlineActions: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  announcementPreview: {
+    backgroundColor: "#08080D",
+    borderRadius: 14,
+    marginTop: 14,
+    padding: 14,
+  },
+  announcementBadge: {
+    alignSelf: "flex-start",
+    backgroundColor: "#047857",
+    borderRadius: 999,
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "900",
+    overflow: "hidden",
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  announcementTitle: {
+    color: "#FFFFFF",
+    fontSize: 17,
+    fontWeight: "900",
+    marginTop: 10,
+  },
+  qrBox: {
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    marginTop: 16,
+    padding: 16,
+  },
+  closeoutCard: {
+    backgroundColor: "rgba(76,29,149,0.22)",
+    borderColor: "rgba(196,181,253,0.32)",
+    borderRadius: 22,
+    borderWidth: 1,
+    marginBottom: 8,
+    marginTop: 24,
+    padding: 18,
+  },
+  closeoutEyebrow: {
+    color: "#C4B5FD",
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 1.5,
+    marginBottom: 7,
+  },
   endEventButton: {
     alignItems: "center",
     backgroundColor: "#7C3AED",
-    borderRadius: 8,
+    borderColor: "#A78BFA",
+    borderRadius: 999,
+    borderWidth: 1,
     marginTop: 14,
     paddingVertical: 13,
   },
@@ -1043,7 +1386,9 @@ const styles = StyleSheet.create({
   },
 
   privacyButton: {
-  backgroundColor: "#2563EB",
+  backgroundColor: "#7C3AED",
+  borderColor: "#A78BFA",
+  borderWidth: 1,
   borderRadius: 999,
   paddingVertical: 16,
   alignItems: "center",
@@ -1052,8 +1397,8 @@ const styles = StyleSheet.create({
   obsButton: {
     alignItems: "center",
     alignSelf: "flex-start",
-    backgroundColor: "#2A2A35",
-    borderColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "#7C3AED",
+    borderColor: "#A78BFA",
     borderRadius: 999,
     borderWidth: 1,
     marginTop: 14,
