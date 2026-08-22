@@ -43,6 +43,7 @@ export default function RoomMissionCard({ roomId }: { roomId: string }) {
   const [manualCode, setManualCode] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [scanLocked, setScanLocked] = useState(false);
+  const [torchEnabled, setTorchEnabled] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
 
   const loadMission = useCallback(async () => {
@@ -134,7 +135,7 @@ export default function RoomMissionCard({ roomId }: { roomId: string }) {
       setFeedback(messages[result.status]);
       setManualCode("");
       await refreshState(mission!.id, guestToken);
-      if (result.status === "valid") setMode("details");
+      if (result.status === "valid") closeScanner();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not verify that code.");
     } finally {
@@ -150,7 +151,13 @@ export default function RoomMissionCard({ roomId }: { roomId: string }) {
       if (!result.granted) { setError("Camera permission is needed to scan a Mission QR."); return; }
     }
     setScanLocked(false);
+    setTorchEnabled(false);
     setMode("scan");
+  }
+
+  function closeScanner() {
+    setTorchEnabled(false);
+    setMode("details");
   }
 
   return (
@@ -217,16 +224,28 @@ export default function RoomMissionCard({ roomId }: { roomId: string }) {
         </View>
       </Modal>}
 
-      {mode === "scan" && <Modal visible animationType="slide" onRequestClose={() => setMode("details")}>
+      {mode === "scan" && <Modal visible animationType="slide" onRequestClose={closeScanner}>
         <View style={styles.scannerModal}>
-          <TouchableOpacity style={styles.closeButton} onPress={() => setMode("details")}><Text style={styles.closeText}>Close</Text></TouchableOpacity>
+          <TouchableOpacity style={styles.closeButton} onPress={closeScanner}><Text style={styles.closeText}>Close</Text></TouchableOpacity>
           <Text style={styles.scannerTitle}>SCAN A PACK MEMBER</Text>
           {permission?.granted ? (
-            <CameraView
-              style={styles.camera}
-              barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-              onBarcodeScanned={scanLocked ? undefined : ({ data }) => void redeem(data)}
-            />
+            <>
+              <CameraView
+                style={styles.camera}
+                facing="back"
+                enableTorch={torchEnabled}
+                barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+                onBarcodeScanned={scanLocked ? undefined : ({ data }) => void redeem(data)}
+              />
+              <TouchableOpacity
+                accessibilityRole="switch"
+                accessibilityState={{ checked: torchEnabled }}
+                style={[styles.torchButton, torchEnabled && styles.torchButtonActive]}
+                onPress={() => setTorchEnabled((enabled) => !enabled)}
+              >
+                <Text style={styles.torchButtonText}>{torchEnabled ? "Turn Flashlight Off" : "Turn Flashlight On"}</Text>
+              </TouchableOpacity>
+            </>
           ) : <TouchableOpacity style={styles.primaryButton} onPress={() => void openScanner()}><Text style={styles.primaryText}>Allow Camera</Text></TouchableOpacity>}
           <Text style={styles.or}>OR ENTER THEIR TEMPORARY CODE</Text>
           <TextInput value={manualCode} onChangeText={(value) => setManualCode(value.toUpperCase())} autoCapitalize="characters" maxLength={64} placeholder="F7K2A1B9" placeholderTextColor="#71717A" style={styles.codeInput} />
@@ -286,6 +305,9 @@ const styles = StyleSheet.create({
   scannerModal: { backgroundColor: "#09040F", flex: 1, justifyContent: "center", padding: 24 },
   scannerTitle: { color: "#FFF", fontSize: 22, fontWeight: "900", marginBottom: 18, textAlign: "center" },
   camera: { borderRadius: 12, height: 320, overflow: "hidden", width: "100%" },
+  torchButton: { alignItems: "center", borderColor: "rgba(253,224,71,0.4)", borderRadius: 8, borderWidth: 1, justifyContent: "center", marginTop: 10, minHeight: 44 },
+  torchButtonActive: { backgroundColor: "rgba(161,98,7,0.38)", borderColor: "#FDE047" },
+  torchButtonText: { color: "#FEF9C3", fontSize: 13, fontWeight: "900" },
   or: { color: "#A1A1AA", fontSize: 11, fontWeight: "900", marginVertical: 15, textAlign: "center" },
   codeInput: { backgroundColor: "#000", borderRadius: 8, color: "#FFF", fontSize: 20, fontWeight: "900", letterSpacing: 5, minHeight: 50, paddingHorizontal: 14, textAlign: "center" },
 });

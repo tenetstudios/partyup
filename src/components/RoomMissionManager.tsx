@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   StyleSheet,
@@ -10,15 +10,18 @@ import {
 import { supabase } from "../../lib/supabase";
 import {
   endRoomMission,
-  getAnimalPackHostResults,
   getActiveRoomMission,
+  getMissionCompletedParticipants,
+  getMissionOperationsDashboard,
   getRoomMissionHistory,
   publishRoomMission,
   publishAnimalPackMission,
-  type AnimalPackHostResults,
+  type MissionCompletedParticipants,
+  type MissionOperationsDashboard as MissionOperationsData,
   type RoomMission,
   type RoomMissionHistoryItem,
 } from "../../lib/roomMissions";
+import MissionOperationsDashboard from "./MissionOperationsDashboard";
 
 const durations = [
   { label: "None", value: null },
@@ -53,27 +56,37 @@ export default function RoomMissionManager({
   const [duration, setDuration] = useState<number | null>(10);
   const [animalCount, setAnimalCount] = useState(6);
   const [targetEncounters, setTargetEncounters] = useState(3);
-  const [hostResults, setHostResults] = useState<AnimalPackHostResults | null>(null);
+  const [hostResults, setHostResults] = useState<MissionCompletedParticipants | null>(null);
+  const [operations, setOperations] = useState<MissionOperationsData | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
   const [historyResultsMissionId, setHistoryResultsMissionId] = useState<string | null>(null);
-  const [historyResults, setHistoryResults] = useState<AnimalPackHostResults | null>(null);
+  const [historyResults, setHistoryResults] = useState<MissionCompletedParticipants | null>(null);
+  const [historyOperationsMissionId, setHistoryOperationsMissionId] = useState<string | null>(null);
+  const [historyOperations, setHistoryOperations] = useState<MissionOperationsData | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const recommendedParticipants = animalCount * (targetEncounters + 1);
+  const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadData = useCallback(async () => {
     const nextMission = await getActiveRoomMission(supabase, roomId);
     setMission(nextMission);
-    setHostResults(
-      isHost && nextMission?.mission_type === "animal_pack"
-        ? await getAnimalPackHostResults(supabase, nextMission.id)
-        : null,
-    );
+    setOperations(isHost && nextMission ? await getMissionOperationsDashboard(supabase, nextMission.id) : null);
 
     if (isHost) {
       setHistory(await getRoomMissionHistory(supabase, roomId, 5));
     }
   }, [isHost, roomId]);
+
+  const scheduleLoadData = useCallback(() => {
+    if (refreshTimeoutRef.current) return;
+    refreshTimeoutRef.current = setTimeout(() => {
+      refreshTimeoutRef.current = null;
+      void loadData().catch((reason) => {
+        setError(reason instanceof Error ? reason.message : "Could not refresh Mission operations.");
+      });
+    }, 750);
+  }, [loadData]);
 
   useEffect(() => {
     void loadData().catch((reason) => {
@@ -85,29 +98,33 @@ export default function RoomMissionManager({
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "room_missions", filter: `room_id=eq.${roomId}` },
-        () => void loadData(),
+        scheduleLoadData,
       )
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "mission_participant_assignments" },
-        () => void loadData(),
+        { event: "*", schema: "public", table: "mission_participant_assignments", filter: `mission_id=eq.${mission?.id ?? "00000000-0000-0000-0000-000000000000"}` },
+        scheduleLoadData,
       )
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "mission_encounters" },
-        () => void loadData(),
+        { event: "*", schema: "public", table: "mission_encounters", filter: `mission_id=eq.${mission?.id ?? "00000000-0000-0000-0000-000000000000"}` },
+        scheduleLoadData,
       )
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "mission_completions" },
-        () => void loadData(),
+        { event: "*", schema: "public", table: "mission_completions", filter: `mission_id=eq.${mission?.id ?? "00000000-0000-0000-0000-000000000000"}` },
+        scheduleLoadData,
       )
       .subscribe();
 
     return () => {
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current);
+        refreshTimeoutRef.current = null;
+      }
       void supabase.removeChannel(channel);
     };
-  }, [loadData, roomId]);
+  }, [loadData, mission?.id, roomId, scheduleLoadData]);
 
   useEffect(() => {
     if (!mission?.ends_at) return;
@@ -141,6 +158,8 @@ export default function RoomMissionManager({
       setDuration(10);
       setMissionType("generic");
       setCreating(false);
+      setShowCompleted(false);
+      setHostResults(null);
       await loadData();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not publish the Mission.");
@@ -162,6 +181,8 @@ export default function RoomMissionManager({
           setError(null);
           try {
             await endRoomMission(supabase, mission.id);
+            setShowCompleted(false);
+            setHostResults(null);
             await loadData();
           } catch (reason) {
             setError(reason instanceof Error ? reason.message : "Could not end the Mission.");
@@ -181,11 +202,53 @@ export default function RoomMissionManager({
     }
     setError(null);
     try {
-      setHistoryResults(await getAnimalPackHostResults(supabase, missionId));
+      setHistoryResults(await getMissionCompletedParticipants(supabase, missionId));
       setHistoryResultsMissionId(missionId);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not load completed participants.");
     }
+  }
+
+  async function toggleCompletedResults() {
+    if (!mission) return;
+    if (showCompleted) {
+      setShowCompleted(false);
+      return;
+    }
+    setError(null);
+    try {
+      setHostResults(await getMissionCompletedParticipants(supabase, mission.id));
+      setShowCompleted(true);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not load completed participants.");
+    }
+  }
+
+  async function toggleHistoryOperations(missionId: string) {
+    if (historyOperationsMissionId === missionId) {
+      setHistoryOperationsMissionId(null);
+      setHistoryOperations(null);
+      return;
+    }
+    setError(null);
+    try {
+      setHistoryOperations(await getMissionOperationsDashboard(supabase, missionId));
+      setHistoryOperationsMissionId(missionId);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not load Mission operations.");
+    }
+  }
+
+  async function loadMoreCompletedResults() {
+    if (!mission || !hostResults?.has_more) return;
+    const next = await getMissionCompletedParticipants(supabase, mission.id, 100, hostResults.participants.length);
+    setHostResults({ ...next, participants: [...hostResults.participants, ...next.participants] });
+  }
+
+  async function loadMoreHistoryResults() {
+    if (!historyResultsMissionId || !historyResults?.has_more) return;
+    const next = await getMissionCompletedParticipants(supabase, historyResultsMissionId, 100, historyResults.participants.length);
+    setHistoryResults({ ...next, participants: [...historyResults.participants, ...next.participants] });
   }
 
   return (
@@ -199,32 +262,34 @@ export default function RoomMissionManager({
         <View style={styles.activeCard}>
           <View style={styles.metaRow}>
             <Text style={styles.activeBadge}>ACTIVE</Text>
-            {mission.mission_type === "animal_pack" && <Text style={styles.count}>{hostResults?.participant_count ?? mission.participant_count} participating</Text>}
-            <Text style={styles.count}>{hostResults?.completed_count ?? mission.completion_count} completed</Text>
+            {mission.mission_type === "animal_pack" && <Text style={styles.count}>{operations?.summary.participant_count ?? mission.participant_count} participating</Text>}
+            <Text style={styles.count}>{operations?.summary.completed_count ?? mission.completion_count} completed</Text>
           </View>
           <Text style={styles.title}>{mission.title}</Text>
           {mission.description ? <Text style={styles.description}>{mission.description}</Text> : null}
           {mission.ends_at ? (
             <Text style={styles.endTime}>Ends {new Date(mission.ends_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text>
           ) : null}
+          {operations && <MissionOperationsDashboard dashboard={operations} />}
           {isHost && (
             <TouchableOpacity style={styles.endButton} onPress={confirmEnd} disabled={busy}>
               <Text style={styles.endButtonText}>End Mission</Text>
             </TouchableOpacity>
           )}
-          {isHost && mission.mission_type === "animal_pack" && (
+          {isHost && (
             <>
-              <TouchableOpacity style={styles.completedListButton} onPress={() => setShowCompleted((value) => !value)}>
+              <TouchableOpacity style={styles.completedListButton} onPress={() => void toggleCompletedResults()}>
                 <Text style={styles.completedListButtonText}>{showCompleted ? "Hide Completed" : "View Completed"}</Text>
               </TouchableOpacity>
               {showCompleted && (
                 <View style={styles.completedList}>
-                  {(hostResults?.completed_participants ?? []).length === 0 ? <Text style={styles.empty}>No completed participants yet.</Text> : hostResults?.completed_participants.map((person) => (
+                  {(hostResults?.participants ?? []).length === 0 ? <Text style={styles.empty}>No completed participants yet.</Text> : hostResults?.participants.map((person) => (
                     <View key={person.identity_id} style={styles.completedPerson}>
                       <Text style={styles.completedName}>{person.display_name}</Text>
-                      <Text style={styles.completedAt}>{new Date(person.completed_at).toLocaleString()}</Text>
+                      <Text style={styles.completedAt}>{person.assignment_key ? `${person.assignment_key} | ` : ""}{new Date(person.completed_at).toLocaleString()}</Text>
                     </View>
                   ))}
+                  {hostResults?.has_more && <TouchableOpacity style={styles.historyResultsButton} onPress={() => void loadMoreCompletedResults()}><Text style={styles.historyResultsText}>Load More ({hostResults.participants.length} of {hostResults.total_count})</Text></TouchableOpacity>}
                 </View>
               )}
             </>
@@ -322,8 +387,13 @@ export default function RoomMissionManager({
                 </View>
                 <Text style={styles.historyCount}>{item.completion_count} completed</Text>
               </View>
-              {item.mission_type === "animal_pack" && <TouchableOpacity style={styles.historyResultsButton} onPress={() => void toggleHistoryResults(item.id)}><Text style={styles.historyResultsText}>{historyResultsMissionId === item.id ? "Hide" : "View Completed"}</Text></TouchableOpacity>}
-              {historyResultsMissionId === item.id && <View style={styles.completedList}>{(historyResults?.completed_participants ?? []).length === 0 ? <Text style={styles.empty}>No completed participants.</Text> : historyResults?.completed_participants.map((person) => <View key={person.identity_id} style={styles.completedPerson}><Text style={styles.completedName}>{person.display_name}</Text><Text style={styles.completedAt}>{new Date(person.completed_at).toLocaleString()}</Text></View>)}</View>}
+              <TouchableOpacity style={styles.historyResultsButton} onPress={() => void toggleHistoryOperations(item.id)}><Text style={styles.historyResultsText}>{historyOperationsMissionId === item.id ? "Hide Operations" : "View Operations"}</Text></TouchableOpacity>
+              {historyOperationsMissionId === item.id && historyOperations && <MissionOperationsDashboard dashboard={historyOperations} />}
+              <TouchableOpacity style={styles.historyResultsButton} onPress={() => void toggleHistoryResults(item.id)}><Text style={styles.historyResultsText}>{historyResultsMissionId === item.id ? "Hide" : "View Completed"}</Text></TouchableOpacity>
+              {historyResultsMissionId === item.id && <View style={styles.completedList}>
+                {(historyResults?.participants ?? []).length === 0 ? <Text style={styles.empty}>No completed participants.</Text> : historyResults?.participants.map((person) => <View key={person.identity_id} style={styles.completedPerson}><Text style={styles.completedName}>{person.display_name}</Text><Text style={styles.completedAt}>{person.assignment_key ? `${person.assignment_key} | ` : ""}{new Date(person.completed_at).toLocaleString()}</Text></View>)}
+                {historyResults?.has_more && <TouchableOpacity style={styles.historyResultsButton} onPress={() => void loadMoreHistoryResults()}><Text style={styles.historyResultsText}>Load More ({historyResults.participants.length} of {historyResults.total_count})</Text></TouchableOpacity>}
+              </View>}
             </View>
           ))}
         </View>
