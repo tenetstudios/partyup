@@ -10,9 +10,12 @@ import {
 import { supabase } from "../../lib/supabase";
 import {
   endRoomMission,
+  getAnimalPackHostResults,
   getActiveRoomMission,
   getRoomMissionHistory,
   publishRoomMission,
+  publishAnimalPackMission,
+  type AnimalPackHostResults,
   type RoomMission,
   type RoomMissionHistoryItem,
 } from "../../lib/roomMissions";
@@ -44,15 +47,27 @@ export default function RoomMissionManager({
   const [mission, setMission] = useState<RoomMission | null>(null);
   const [history, setHistory] = useState<RoomMissionHistoryItem[]>([]);
   const [creating, setCreating] = useState(false);
+  const [missionType, setMissionType] = useState<"generic" | "animal_pack">("generic");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [duration, setDuration] = useState<number | null>(10);
+  const [animalCount, setAnimalCount] = useState(6);
+  const [targetEncounters, setTargetEncounters] = useState(3);
+  const [hostResults, setHostResults] = useState<AnimalPackHostResults | null>(null);
+  const [showCompleted, setShowCompleted] = useState(false);
+  const [historyResultsMissionId, setHistoryResultsMissionId] = useState<string | null>(null);
+  const [historyResults, setHistoryResults] = useState<AnimalPackHostResults | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     const nextMission = await getActiveRoomMission(supabase, roomId);
     setMission(nextMission);
+    setHostResults(
+      isHost && nextMission?.mission_type === "animal_pack"
+        ? await getAnimalPackHostResults(supabase, nextMission.id)
+        : null,
+    );
 
     if (isHost) {
       setHistory(await getRoomMissionHistory(supabase, roomId, 5));
@@ -69,6 +84,16 @@ export default function RoomMissionManager({
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "room_missions", filter: `room_id=eq.${roomId}` },
+        () => void loadData(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "mission_participant_assignments" },
+        () => void loadData(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "mission_encounters" },
         () => void loadData(),
       )
       .on(
@@ -101,14 +126,19 @@ export default function RoomMissionManager({
     setError(null);
 
     try {
-      await publishRoomMission(supabase, roomId, {
-        title,
-        description,
-        durationMinutes: duration,
-      });
+      if (missionType === "animal_pack") {
+        await publishAnimalPackMission(supabase, roomId, {
+          animalCount,
+          targetEncounters,
+          durationMinutes: duration ?? 10,
+        });
+      } else {
+        await publishRoomMission(supabase, roomId, { title, description, durationMinutes: duration });
+      }
       setTitle("");
       setDescription("");
       setDuration(10);
+      setMissionType("generic");
       setCreating(false);
       await loadData();
     } catch (reason) {
@@ -142,6 +172,21 @@ export default function RoomMissionManager({
     ]);
   }
 
+  async function toggleHistoryResults(missionId: string) {
+    if (historyResultsMissionId === missionId) {
+      setHistoryResultsMissionId(null);
+      setHistoryResults(null);
+      return;
+    }
+    setError(null);
+    try {
+      setHistoryResults(await getAnimalPackHostResults(supabase, missionId));
+      setHistoryResultsMissionId(missionId);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not load completed participants.");
+    }
+  }
+
   return (
     <View style={styles.section}>
       <Text style={styles.heading}>Missions</Text>
@@ -153,7 +198,8 @@ export default function RoomMissionManager({
         <View style={styles.activeCard}>
           <View style={styles.metaRow}>
             <Text style={styles.activeBadge}>ACTIVE</Text>
-            <Text style={styles.count}>{mission.completion_count} completed</Text>
+            {mission.mission_type === "animal_pack" && <Text style={styles.count}>{hostResults?.participant_count ?? mission.participant_count} participating</Text>}
+            <Text style={styles.count}>{hostResults?.completed_count ?? mission.completion_count} completed</Text>
           </View>
           <Text style={styles.title}>{mission.title}</Text>
           {mission.description ? <Text style={styles.description}>{mission.description}</Text> : null}
@@ -164,6 +210,23 @@ export default function RoomMissionManager({
             <TouchableOpacity style={styles.endButton} onPress={confirmEnd} disabled={busy}>
               <Text style={styles.endButtonText}>End Mission</Text>
             </TouchableOpacity>
+          )}
+          {isHost && mission.mission_type === "animal_pack" && (
+            <>
+              <TouchableOpacity style={styles.completedListButton} onPress={() => setShowCompleted((value) => !value)}>
+                <Text style={styles.completedListButtonText}>{showCompleted ? "Hide Completed" : "View Completed"}</Text>
+              </TouchableOpacity>
+              {showCompleted && (
+                <View style={styles.completedList}>
+                  {(hostResults?.completed_participants ?? []).length === 0 ? <Text style={styles.empty}>No completed participants yet.</Text> : hostResults?.completed_participants.map((person) => (
+                    <View key={person.identity_id} style={styles.completedPerson}>
+                      <Text style={styles.completedName}>{person.display_name}</Text>
+                      <Text style={styles.completedAt}>{new Date(person.completed_at).toLocaleString()}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </>
           )}
         </View>
       ) : (
@@ -178,6 +241,16 @@ export default function RoomMissionManager({
 
       {isHost && !roomEnded && creating && (
         <View style={styles.form}>
+          <Text style={styles.label}>Mission Type</Text>
+          <View style={styles.durationRow}>
+            {(["generic", "animal_pack"] as const).map((value) => (
+              <TouchableOpacity key={value} style={[styles.durationButton, missionType === value && styles.durationButtonActive]} onPress={() => setMissionType(value)}>
+                <Text style={[styles.durationText, missionType === value && styles.durationTextActive]}>{value === "generic" ? "Standard Mission" : "Find Your Pack"}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          {missionType === "generic" ? (
+            <>
           <Text style={styles.label}>Mission title</Text>
           <TextInput
             value={title}
@@ -199,10 +272,19 @@ export default function RoomMissionManager({
             placeholderTextColor="#71717A"
             style={[styles.input, styles.descriptionInput]}
           />
+            </>
+          ) : (
+            <>
+              <Text style={styles.label}>Number of animal groups</Text>
+              <View style={styles.durationRow}>{[4, 6, 8, 10, 12].map((value) => <TouchableOpacity key={value} style={[styles.durationButton, animalCount === value && styles.durationButtonActive]} onPress={() => setAnimalCount(value)}><Text style={[styles.durationText, animalCount === value && styles.durationTextActive]}>{value}</Text></TouchableOpacity>)}</View>
+              <Text style={styles.label}>People each participant must find</Text>
+              <View style={styles.durationRow}>{[1, 2, 3].map((value) => <TouchableOpacity key={value} style={[styles.durationButton, targetEncounters === value && styles.durationButtonActive]} onPress={() => setTargetEncounters(value)}><Text style={[styles.durationText, targetEncounters === value && styles.durationTextActive]}>{value}</Text></TouchableOpacity>)}</View>
+            </>
+          )}
 
           <Text style={styles.label}>Duration</Text>
           <View style={styles.durationRow}>
-            {durations.map((option) => (
+            {durations.filter((option) => missionType === "generic" || option.value !== null).map((option) => (
               <TouchableOpacity
                 key={option.label}
                 style={[styles.durationButton, duration === option.value && styles.durationButtonActive]}
@@ -228,12 +310,16 @@ export default function RoomMissionManager({
         <View style={styles.history}>
           <Text style={styles.historyHeading}>PAST MISSIONS</Text>
           {history.map((item) => (
-            <View key={item.id} style={styles.historyRow}>
-              <View style={styles.historyText}>
-                <Text style={styles.historyTitle} numberOfLines={1}>{item.title}</Text>
-                <Text style={styles.historyMeta}>{endedLabel(item.ended_reason)}</Text>
+            <View key={item.id} style={styles.historyCard}>
+              <View style={styles.historyRow}>
+                <View style={styles.historyText}>
+                  <Text style={styles.historyTitle} numberOfLines={1}>{item.title}</Text>
+                  <Text style={styles.historyMeta}>{endedLabel(item.ended_reason)}</Text>
+                </View>
+                <Text style={styles.historyCount}>{item.completion_count} completed</Text>
               </View>
-              <Text style={styles.historyCount}>{item.completion_count} completed</Text>
+              {item.mission_type === "animal_pack" && <TouchableOpacity style={styles.historyResultsButton} onPress={() => void toggleHistoryResults(item.id)}><Text style={styles.historyResultsText}>{historyResultsMissionId === item.id ? "Hide" : "View Completed"}</Text></TouchableOpacity>}
+              {historyResultsMissionId === item.id && <View style={styles.completedList}>{(historyResults?.completed_participants ?? []).length === 0 ? <Text style={styles.empty}>No completed participants.</Text> : historyResults?.completed_participants.map((person) => <View key={person.identity_id} style={styles.completedPerson}><Text style={styles.completedName}>{person.display_name}</Text><Text style={styles.completedAt}>{new Date(person.completed_at).toLocaleString()}</Text></View>)}</View>}
             </View>
           ))}
         </View>
@@ -262,6 +348,12 @@ const styles = StyleSheet.create({
   endTime: { color: "#A1A1AA", fontSize: 12, fontWeight: "700", marginTop: 9 },
   endButton: { alignItems: "center", borderColor: "rgba(248,113,113,0.45)", borderRadius: 8, borderWidth: 1, marginTop: 13, minHeight: 44, justifyContent: "center" },
   endButtonText: { color: "#FCA5A5", fontWeight: "900" },
+  completedListButton: { alignItems: "center", borderColor: "rgba(196,181,253,0.4)", borderRadius: 8, borderWidth: 1, marginTop: 12, minHeight: 44, justifyContent: "center" },
+  completedListButtonText: { color: "#E9D5FF", fontWeight: "900" },
+  completedList: { gap: 7, marginTop: 8 },
+  completedPerson: { backgroundColor: "rgba(255,255,255,0.05)", borderRadius: 7, padding: 10 },
+  completedName: { color: "#FFFFFF", fontSize: 13, fontWeight: "900" },
+  completedAt: { color: "#A1A1AA", fontSize: 11, marginTop: 3 },
   empty: { color: "#71717A", fontSize: 13, fontWeight: "700", marginTop: 14 },
   createButton: { alignItems: "center", backgroundColor: "#DB2777", borderRadius: 8, justifyContent: "center", marginTop: 14, minHeight: 48, paddingHorizontal: 15 },
   createButtonText: { color: "#FFFFFF", fontWeight: "900", textAlign: "center" },
@@ -281,10 +373,13 @@ const styles = StyleSheet.create({
   cancelButtonText: { color: "#D4D4D8", fontWeight: "900" },
   history: { borderTopColor: "rgba(255,255,255,0.1)", borderTopWidth: 1, marginTop: 16, paddingTop: 14 },
   historyHeading: { color: "#A1A1AA", fontSize: 11, fontWeight: "900", marginBottom: 8 },
-  historyRow: { alignItems: "center", backgroundColor: "#08080D", borderRadius: 8, flexDirection: "row", gap: 10, justifyContent: "space-between", marginTop: 7, padding: 12 },
+  historyCard: { backgroundColor: "#08080D", borderRadius: 8, marginTop: 7, padding: 12 },
+  historyRow: { alignItems: "center", flexDirection: "row", gap: 10, justifyContent: "space-between" },
   historyText: { flex: 1, minWidth: 0 },
   historyTitle: { color: "#FFFFFF", fontSize: 14, fontWeight: "900" },
   historyMeta: { color: "#71717A", fontSize: 11, fontWeight: "700", marginTop: 3 },
   historyCount: { color: "#D4D4D8", fontSize: 12, fontWeight: "900" },
+  historyResultsButton: { alignItems: "center", borderColor: "rgba(255,255,255,0.16)", borderRadius: 7, borderWidth: 1, marginTop: 9, minHeight: 38, justifyContent: "center" },
+  historyResultsText: { color: "#E9D5FF", fontSize: 12, fontWeight: "900" },
   error: { color: "#FCA5A5", fontSize: 13, fontWeight: "800", lineHeight: 18, marginTop: 10 },
 });
