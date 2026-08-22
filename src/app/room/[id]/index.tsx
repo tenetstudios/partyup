@@ -18,6 +18,7 @@ import {
 } from "react-native";
 import { supabase } from "../../../../lib/supabase";
 import LiveKitRoomView from "../../../components/LiveKitRoomView";
+import RoomMissionCard from "../../../components/RoomMissionCard";
 import { getOrCreateEventMatchPool } from "../../../lib/matchmaking";
 
 type RoomType = "party" | "concert" | "dj_set" | "popup" | "sports" | "watch_party";
@@ -1770,6 +1771,8 @@ const requestedStreamers = [
               )}
             </View>
           )}
+
+          <RoomMissionCard roomId={room.id} />
 
           {!isDesktop && mobileRoomOverview}
 

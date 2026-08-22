@@ -9,6 +9,7 @@ import {
   View,
 } from "react-native";
 import { supabase } from "../../../../lib/supabase";
+import RoomMissionManager from "../../../components/RoomMissionManager";
 
 type Tab = "queue" | "inside" | "streams" | "bouncers" | "settings";
 
@@ -503,6 +504,7 @@ async function endEvent() {
       <ScrollView style={styles.page} contentContainerStyle={styles.container}>
         <Text style={styles.heading}>Event Ended</Text>
         <Text style={styles.subheading}>{room.title} is read-only. Memories, recaps, attendance, and series history are retained.</Text>
+        <RoomMissionManager roomId={room.id} isHost={isHost} roomEnded />
         <TouchableOpacity style={styles.privacyButton} onPress={() => router.replace(`/room/${room.id}`)}>
           <Text style={styles.buttonText}>Back to Past Event</Text>
         </TouchableOpacity>
@@ -806,6 +808,8 @@ async function endEvent() {
       {activeTab === "settings" && (
         <View>
           <Text style={styles.sectionTitle}>Room Settings</Text>
+
+          <RoomMissionManager roomId={room.id} isHost={isHost} />
 
           <View style={styles.card}>
             <Text style={styles.name}>Capacity</Text>
