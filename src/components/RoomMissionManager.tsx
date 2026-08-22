@@ -59,6 +59,7 @@ export default function RoomMissionManager({
   const [historyResults, setHistoryResults] = useState<AnimalPackHostResults | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const recommendedParticipants = animalCount * (targetEncounters + 1);
 
   const loadData = useCallback(async () => {
     const nextMission = await getActiveRoomMission(supabase, roomId);
@@ -279,6 +280,9 @@ export default function RoomMissionManager({
               <View style={styles.durationRow}>{[4, 6, 8, 10, 12].map((value) => <TouchableOpacity key={value} style={[styles.durationButton, animalCount === value && styles.durationButtonActive]} onPress={() => setAnimalCount(value)}><Text style={[styles.durationText, animalCount === value && styles.durationTextActive]}>{value}</Text></TouchableOpacity>)}</View>
               <Text style={styles.label}>People each participant must find</Text>
               <View style={styles.durationRow}>{[1, 2, 3].map((value) => <TouchableOpacity key={value} style={[styles.durationButton, targetEncounters === value && styles.durationButtonActive]} onPress={() => setTargetEncounters(value)}><Text style={[styles.durationText, targetEncounters === value && styles.durationTextActive]}>{value}</Text></TouchableOpacity>)}</View>
+              <View style={styles.capacityNotice}>
+                <Text style={styles.capacityNoticeText}>For every participant to have enough possible pack members, plan for at least <Text style={styles.capacityNoticeStrong}>{recommendedParticipants} participants</Text>.</Text>
+              </View>
             </>
           )}
 
@@ -366,6 +370,9 @@ const styles = StyleSheet.create({
   durationButtonActive: { backgroundColor: "#7C3AED", borderColor: "#A78BFA" },
   durationText: { color: "#A1A1AA", fontSize: 12, fontWeight: "800" },
   durationTextActive: { color: "#FFFFFF" },
+  capacityNotice: { backgroundColor: "rgba(120,53,15,0.22)", borderColor: "rgba(252,211,77,0.28)", borderRadius: 8, borderWidth: 1, marginTop: 12, padding: 12 },
+  capacityNoticeText: { color: "#FEF3C7", fontSize: 13, lineHeight: 19 },
+  capacityNoticeStrong: { fontWeight: "900" },
   actionRow: { flexDirection: "row", flexWrap: "wrap", gap: 9, marginTop: 16 },
   publishButton: { alignItems: "center", backgroundColor: "#DB2777", borderRadius: 8, flexGrow: 1, justifyContent: "center", minHeight: 46, paddingHorizontal: 14 },
   publishButtonText: { color: "#FFFFFF", fontWeight: "900" },
