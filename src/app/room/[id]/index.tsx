@@ -21,6 +21,12 @@ import LiveKitRoomView from "../../../components/LiveKitRoomView";
 import RoomMissionCard from "../../../components/RoomMissionCard";
 import { getOrCreateEventMatchPool } from "../../../lib/matchmaking";
 import { friendlyChatError } from "../../../../lib/chatModeration";
+import {
+  chatReportReasons,
+  getMyRoomMessageReportIds,
+  submitRoomMessageReport,
+  type ChatReportReason,
+} from "../../../../lib/chatReports";
 
 type RoomType = "party" | "concert" | "dj_set" | "popup" | "sports" | "watch_party";
 type RoomMode = "irl" | "livestream" | "hybrid";
@@ -75,7 +81,7 @@ type Profile = {
 type Message = {
   id: string;
   room_id: string;
-  user_id: string;
+  user_id: string | null;
   display_name: string | null;
   message: string;
   created_at: string;
@@ -154,7 +160,7 @@ function getInitials(name: string) {
   return initials || "G";
 }
 
-function navigateToUser(userId: string) {
+function navigateToUser(userId: string | null) {
   if (!userId) return;
   router.push({
     pathname: "/user/[id]",
@@ -283,6 +289,12 @@ export default function RoomScreen() {
   const [publishSignal, setPublishSignal] = useState(0);
   const [stopPublishSignal, setStopPublishSignal] = useState(0);
   const [roomDeleted, setRoomDeleted] = useState(false);
+  const [messageActionTarget, setMessageActionTarget] = useState<Message | null>(null);
+  const [reportingMessage, setReportingMessage] = useState<Message | null>(null);
+  const [reportReason, setReportReason] = useState<ChatReportReason | null>(null);
+  const [reportDetails, setReportDetails] = useState("");
+  const [reportSubmitting, setReportSubmitting] = useState(false);
+  const [reportedMessageIds, setReportedMessageIds] = useState<Set<string>>(() => new Set());
   const chatListRef = useRef<FlatList<any> | null>(null);
   const feedActionsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -520,6 +532,9 @@ async function loadHostProfile(hostId: string) {
 
     if (userData.user) {
       setCurrentUserId(userData.user.id);
+
+      const reportedIds = await getMyRoomMessageReportIds(supabase, roomId).catch(() => []);
+      setReportedMessageIds(new Set(reportedIds));
 
       const { data: myQueueRow } = await supabase
 .from("event_attendees")
@@ -907,6 +922,7 @@ const { error } = await supabase.rpc("send_room_message", {
   }
 
   function moderateMessage(message: Message, action: "remove" | "mute_5m") {
+    setMessageActionTarget(null);
     const title = action === "remove" ? "Remove this message?" : "Mute this person for 5 minutes?";
     const body = action === "remove"
       ? "The message will disappear from this room."
@@ -934,6 +950,34 @@ const { error } = await supabase.rpc("send_room_message", {
         },
       },
     ]);
+  }
+
+  function beginReport(message: Message) {
+    setMessageActionTarget(null);
+    setReportReason(null);
+    setReportDetails("");
+    setReportingMessage(message);
+  }
+
+  async function submitMessageReport() {
+    if (!reportingMessage || !reportReason || reportSubmitting) return;
+    setReportSubmitting(true);
+
+    try {
+      await submitRoomMessageReport(
+        supabase,
+        reportingMessage.id,
+        reportReason,
+        reportDetails,
+      );
+      setReportedMessageIds((current) => new Set(current).add(reportingMessage.id));
+      setReportingMessage(null);
+      Alert.alert("Report submitted", "The room host can now review this message.");
+    } catch (reason) {
+      Alert.alert("Report failed", reason instanceof Error ? reason.message : "Could not submit this report.");
+    } finally {
+      setReportSubmitting(false);
+    }
   }
 
   function insertEmoji(emoji: string) {
@@ -1522,7 +1566,7 @@ const requestedStreamers = [
   }
 
   const displayName =
-    item.display_name || `Guest ${item.user_id.slice(0, 4)}`;
+    item.display_name || (item.user_id ? `Guest ${item.user_id.slice(0, 4)}` : "Deleted user");
 
   const timestamp = item.created_at
     ? new Date(item.created_at).toLocaleTimeString([], {
@@ -1562,24 +1606,24 @@ const requestedStreamers = [
           )}
         </TouchableOpacity>
 
-        <Text style={styles.messageTime}>{timestamp}</Text>
+        <View style={styles.messageHeaderActions}>
+          <Text style={styles.messageTime}>{timestamp}</Text>
+          {(canManageQueue || (currentUserId && item.user_id && item.user_id !== currentUserId && !reportedMessageIds.has(item.id))) && (
+            <TouchableOpacity
+              accessibilityLabel={`Actions for ${displayName}'s message`}
+              accessibilityRole="button"
+              style={styles.messageMenuButton}
+              onPress={() => setMessageActionTarget(item as Message)}
+            >
+              <Ionicons name="ellipsis-horizontal" size={20} color="#AAA4B8" />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       <Text style={[styles.messageText, !isDesktop && styles.messageTextMobile]}>
         {item.message}
       </Text>
-      {canManageQueue && (
-        <View style={styles.messageModerationActions}>
-          <TouchableOpacity style={styles.removeMessageButton} onPress={() => moderateMessage(item as Message, "remove")}>
-            <Text style={styles.removeMessageText}>Remove</Text>
-          </TouchableOpacity>
-          {isHost && item.user_id !== currentUserId && item.user_id !== room.host_id && (
-            <TouchableOpacity style={styles.muteMessageButton} onPress={() => moderateMessage(item as Message, "mute_5m")}>
-              <Text style={styles.muteMessageText}>Mute 5m</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      )}
     </View>
   );
 
@@ -1643,6 +1687,115 @@ const requestedStreamers = [
             ))}
           </View>
         </TouchableOpacity>
+      </Modal>
+
+      <Modal
+        animationType="fade"
+        transparent
+        visible={Boolean(messageActionTarget)}
+        onRequestClose={() => setMessageActionTarget(null)}
+      >
+        <TouchableOpacity
+          activeOpacity={1}
+          style={styles.messageActionBackdrop}
+          onPress={() => setMessageActionTarget(null)}
+        >
+          <View style={styles.messageActionSheet} onStartShouldSetResponder={() => true}>
+            <View style={styles.messageActionHandle} />
+            <Text style={styles.messageActionTitle} numberOfLines={1}>
+              {messageActionTarget?.display_name || "Message actions"}
+            </Text>
+
+            {canManageQueue && messageActionTarget && (
+              <TouchableOpacity style={styles.messageActionRow} onPress={() => moderateMessage(messageActionTarget, "remove")}>
+                <Ionicons name="trash-outline" size={21} color="#FCA5A5" />
+                <Text style={[styles.messageActionText, styles.messageActionDangerText]}>Remove message</Text>
+              </TouchableOpacity>
+            )}
+
+            {isHost && messageActionTarget?.user_id && messageActionTarget.user_id !== currentUserId && messageActionTarget.user_id !== room.host_id && (
+              <TouchableOpacity style={styles.messageActionRow} onPress={() => moderateMessage(messageActionTarget, "mute_5m")}>
+                <Ionicons name="volume-mute-outline" size={22} color="#DDD6FE" />
+                <Text style={styles.messageActionText}>Mute for 5 minutes</Text>
+              </TouchableOpacity>
+            )}
+
+            {messageActionTarget?.user_id && messageActionTarget.user_id !== currentUserId && !reportedMessageIds.has(messageActionTarget.id) && (
+              <TouchableOpacity style={styles.messageActionRow} onPress={() => beginReport(messageActionTarget)}>
+                <Ionicons name="flag-outline" size={21} color="#FDE68A" />
+                <Text style={[styles.messageActionText, styles.messageActionReportText]}>Report message</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity style={[styles.messageActionRow, styles.messageActionCancel]} onPress={() => setMessageActionTarget(null)}>
+              <Ionicons name="close" size={22} color="#AAA4B8" />
+              <Text style={styles.messageActionCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      <Modal
+        animationType="slide"
+        transparent
+        visible={Boolean(reportingMessage)}
+        onRequestClose={() => {
+          if (!reportSubmitting) setReportingMessage(null);
+        }}
+      >
+        <View style={styles.messageActionBackdrop}>
+          <View style={styles.messageReportSheet}>
+            <View style={styles.messageReportHeader}>
+              <View style={styles.messageReportHeaderCopy}>
+                <Text style={styles.messageReportEyebrow}>ROOM SAFETY</Text>
+                <Text style={styles.messageReportTitle}>Report message</Text>
+              </View>
+              <TouchableOpacity accessibilityLabel="Close report" style={styles.messageReportClose} disabled={reportSubmitting} onPress={() => setReportingMessage(null)}>
+                <Ionicons name="close" size={23} color="#D9D5E8" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.messageReportAuthor}>{reportingMessage?.display_name || "PartyUp user"}</Text>
+            <Text style={styles.messageReportSnapshot} numberOfLines={3}>{reportingMessage?.message}</Text>
+
+            <ScrollView style={styles.messageReportBody} contentContainerStyle={styles.messageReportBodyContent} keyboardShouldPersistTaps="handled">
+              <Text style={styles.messageReportLabel}>Reason</Text>
+              <View style={styles.messageReportReasons}>
+                {chatReportReasons.map((option) => {
+                  const selected = reportReason === option.value;
+                  return (
+                    <TouchableOpacity key={option.value} accessibilityRole="radio" accessibilityState={{ selected }} style={[styles.messageReportReason, selected && styles.messageReportReasonSelected]} onPress={() => setReportReason(option.value)}>
+                      <Ionicons name={selected ? "radio-button-on" : "radio-button-off"} size={20} color={selected ? "#C4B5FD" : "#777085"} />
+                      <Text style={[styles.messageReportReasonText, selected && styles.messageReportReasonTextSelected]}>{option.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <Text style={styles.messageReportLabel}>Additional details (optional)</Text>
+              <TextInput
+                value={reportDetails}
+                onChangeText={setReportDetails}
+                maxLength={500}
+                multiline
+                numberOfLines={4}
+                placeholder="Add context for the room host"
+                placeholderTextColor="#777085"
+                style={styles.messageReportInput}
+              />
+              <Text style={styles.messageReportCount}>{reportDetails.length}/500</Text>
+            </ScrollView>
+
+            <View style={styles.messageReportActions}>
+              <TouchableOpacity style={styles.messageReportCancel} disabled={reportSubmitting} onPress={() => setReportingMessage(null)}>
+                <Text style={styles.messageReportCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.messageReportSubmit, (!reportReason || reportSubmitting) && styles.messageReportSubmitDisabled]} disabled={!reportReason || reportSubmitting} onPress={submitMessageReport}>
+                <Text style={styles.messageReportSubmitText}>{reportSubmitting ? "Submitting..." : "Submit report"}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       </Modal>
     </View>
   );
@@ -3160,41 +3313,234 @@ const styles = StyleSheet.create({
     fontSize: 11,
     flexShrink: 0,
   },
+  messageHeaderActions: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 4,
+    flexShrink: 0,
+  },
+  messageMenuButton: {
+    alignItems: "center",
+    borderRadius: 6,
+    height: 32,
+    justifyContent: "center",
+    width: 32,
+  },
   messageText: {
     color: "#D9D5E8",
     fontSize: 14,
     lineHeight: 19,
     marginLeft: 39,
   },
-  messageModerationActions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginLeft: 39,
-    marginTop: 7,
+  messageActionBackdrop: {
+    backgroundColor: "rgba(0,0,0,0.66)",
+    flex: 1,
+    justifyContent: "flex-end",
   },
-  removeMessageButton: {
-    borderColor: "rgba(252,165,165,0.35)",
-    borderRadius: 999,
+  messageActionSheet: {
+    backgroundColor: "#120C1C",
+    borderColor: "rgba(255,255,255,0.14)",
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
     borderWidth: 1,
-    paddingHorizontal: 11,
-    paddingVertical: 5,
+    paddingBottom: 18,
+    paddingHorizontal: 14,
+    paddingTop: 9,
   },
-  removeMessageText: {
+  messageActionHandle: {
+    alignSelf: "center",
+    backgroundColor: "#5D5668",
+    borderRadius: 2,
+    height: 4,
+    marginBottom: 12,
+    width: 42,
+  },
+  messageActionTitle: {
+    color: "#AAA4B8",
+    fontSize: 12,
+    fontWeight: "800",
+    marginBottom: 5,
+    paddingHorizontal: 12,
+  },
+  messageActionRow: {
+    alignItems: "center",
+    borderRadius: 8,
+    flexDirection: "row",
+    gap: 12,
+    minHeight: 48,
+    paddingHorizontal: 12,
+  },
+  messageActionText: {
+    color: "#E9E4F2",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  messageActionDangerText: {
     color: "#FCA5A5",
+  },
+  messageActionReportText: {
+    color: "#FDE68A",
+  },
+  messageActionCancel: {
+    borderTopColor: "rgba(255,255,255,0.08)",
+    borderTopWidth: 1,
+    marginTop: 5,
+  },
+  messageActionCancelText: {
+    color: "#AAA4B8",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  messageReportSheet: {
+    backgroundColor: "#120C1C",
+    borderColor: "rgba(255,255,255,0.14)",
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    borderWidth: 1,
+    maxHeight: "90%",
+    paddingBottom: 16,
+  },
+  messageReportHeader: {
+    alignItems: "center",
+    borderBottomColor: "rgba(255,255,255,0.08)",
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    padding: 16,
+  },
+  messageReportHeaderCopy: {
+    flex: 1,
+  },
+  messageReportEyebrow: {
+    color: "#FDE68A",
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 1.2,
+  },
+  messageReportTitle: {
+    color: "#FFFFFF",
+    fontSize: 20,
+    fontWeight: "900",
+    marginTop: 3,
+  },
+  messageReportClose: {
+    alignItems: "center",
+    borderColor: "rgba(255,255,255,0.14)",
+    borderRadius: 7,
+    borderWidth: 1,
+    height: 38,
+    justifyContent: "center",
+    width: 38,
+  },
+  messageReportAuthor: {
+    color: "#C4B5FD",
+    fontSize: 12,
+    fontWeight: "900",
+    marginHorizontal: 16,
+    marginTop: 14,
+  },
+  messageReportSnapshot: {
+    borderLeftColor: "rgba(167,139,250,0.6)",
+    borderLeftWidth: 2,
+    color: "#D9D5E8",
+    fontSize: 14,
+    lineHeight: 20,
+    marginHorizontal: 16,
+    marginTop: 7,
+    paddingLeft: 10,
+  },
+  messageReportBody: {
+    marginTop: 14,
+  },
+  messageReportBodyContent: {
+    paddingHorizontal: 16,
+  },
+  messageReportLabel: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "900",
+    marginBottom: 8,
+    marginTop: 10,
+  },
+  messageReportReasons: {
+    gap: 4,
+  },
+  messageReportReason: {
+    alignItems: "center",
+    borderColor: "transparent",
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    minHeight: 42,
+    paddingHorizontal: 10,
+  },
+  messageReportReasonSelected: {
+    backgroundColor: "rgba(124,58,237,0.16)",
+    borderColor: "rgba(196,181,253,0.35)",
+  },
+  messageReportReasonText: {
+    color: "#B8B2C8",
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  messageReportReasonTextSelected: {
+    color: "#F3E8FF",
+  },
+  messageReportInput: {
+    borderColor: "rgba(255,255,255,0.14)",
+    borderRadius: 8,
+    borderWidth: 1,
+    color: "#FFFFFF",
+    fontSize: 14,
+    minHeight: 92,
+    padding: 12,
+    textAlignVertical: "top",
+  },
+  messageReportCount: {
+    color: "#777085",
     fontSize: 11,
+    marginTop: 5,
+    textAlign: "right",
+  },
+  messageReportActions: {
+    borderTopColor: "rgba(255,255,255,0.08)",
+    borderTopWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 14,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+  },
+  messageReportCancel: {
+    alignItems: "center",
+    borderColor: "rgba(255,255,255,0.14)",
+    borderRadius: 8,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 46,
+  },
+  messageReportCancelText: {
+    color: "#D9D5E8",
+    fontSize: 14,
     fontWeight: "900",
   },
-  muteMessageButton: {
-    borderColor: "rgba(196,181,253,0.4)",
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: 11,
-    paddingVertical: 5,
+  messageReportSubmit: {
+    alignItems: "center",
+    backgroundColor: "#DC2626",
+    borderRadius: 8,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 46,
   },
-  muteMessageText: {
-    color: "#DDD6FE",
-    fontSize: 11,
+  messageReportSubmitDisabled: {
+    opacity: 0.45,
+  },
+  messageReportSubmitText: {
+    color: "#FFFFFF",
+    fontSize: 14,
     fontWeight: "900",
   },
   typingPill: {
