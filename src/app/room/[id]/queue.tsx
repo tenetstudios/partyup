@@ -16,6 +16,7 @@ import { supabase } from "../../../../lib/supabase";
 import RoomMissionManager from "../../../components/RoomMissionManager";
 import RoomChatModerationSettings from "../../../components/RoomChatModerationSettings";
 import ClearRoomParticipantsCard from "../../../components/ClearRoomParticipantsCard";
+import RoomIdleLoopManager from "../../../components/RoomIdleLoopManager";
 
 type Tab = "queue" | "inside" | "streams" | "bouncers" | "settings";
 
@@ -1029,6 +1030,7 @@ async function endEvent() {
           {isHost && <RoomEntryQrCard roomId={room.id} roomTitle={room.title} />}
           {isHost && <RoomAnnouncementEditor roomId={room.id} />}
           {isHost && <RoomChatModerationSettings roomId={room.id} />}
+          {isHost && <RoomIdleLoopManager roomId={room.id} />}
 
           <View style={styles.card}>
             <Text style={styles.name}>Capacity</Text>

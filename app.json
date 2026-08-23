@@ -49,7 +49,8 @@
           "cameraPermission": "Allow PartyUp to scan temporary Mission QR codes.",
           "recordAudioAndroid": false
         }
-      ]
+      ],
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true,

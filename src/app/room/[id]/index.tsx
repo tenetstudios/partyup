@@ -27,6 +27,8 @@ import {
   submitRoomMessageReport,
   type ChatReportReason,
 } from "../../../../lib/chatReports";
+import { useRoomStreamFrame } from "../../../hooks/useRoomStreamFrame";
+import type { RoomIdleMedia } from "../../../lib/roomIdleMedia";
 
 type RoomType = "party" | "concert" | "dj_set" | "popup" | "sports" | "watch_party";
 type RoomMode = "irl" | "livestream" | "hybrid";
@@ -190,6 +192,9 @@ function LivestreamPanel({
   onPublishingChange,
   publishSignal,
   stopSignal,
+  shouldConnect,
+  idleMedia,
+  expectedLive,
 }: {
   room: Room;
   isDesktop: boolean;
@@ -202,6 +207,9 @@ function LivestreamPanel({
   onPublishingChange?: (publishing: boolean) => void;
   publishSignal?: number;
   stopSignal?: number;
+  shouldConnect: boolean;
+  idleMedia: RoomIdleMedia | null;
+  expectedLive: boolean;
 }) {
   const backgroundImage = room.cover_image
     ? { uri: room.cover_image }
@@ -228,10 +236,6 @@ function LivestreamPanel({
 
         {isDesktop && (
         <View style={styles.liveStreamBadgeRow}>
-          <View style={styles.liveBadgeMobile}>
-            <Text style={styles.liveBadgeText}>LIVE</Text>
-          </View>
-
           <View style={styles.viewerPill}>
             <Text style={styles.viewerPillText}>{room.current_users} viewers</Text>
           </View>
@@ -248,6 +252,9 @@ function LivestreamPanel({
     onPublishingChange={onPublishingChange}
     publishSignal={publishSignal}
     stopSignal={stopSignal}
+    shouldConnect={shouldConnect}
+    idleMedia={idleMedia}
+    expectedLive={expectedLive}
   />
 
         </View>
@@ -288,6 +295,7 @@ export default function RoomScreen() {
   const [pendingLocalPublish, setPendingLocalPublish] = useState(false);
   const [publishSignal, setPublishSignal] = useState(0);
   const [stopPublishSignal, setStopPublishSignal] = useState(0);
+  const [publisherIntent, setPublisherIntent] = useState(false);
   const [roomDeleted, setRoomDeleted] = useState(false);
   const [messageActionTarget, setMessageActionTarget] = useState<Message | null>(null);
   const [reportingMessage, setReportingMessage] = useState<Message | null>(null);
@@ -297,6 +305,7 @@ export default function RoomScreen() {
   const [reportedMessageIds, setReportedMessageIds] = useState<Set<string>>(() => new Set());
   const chatListRef = useRef<FlatList<any> | null>(null);
   const feedActionsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { idleMedia, liveState } = useRoomStreamFrame(roomId);
 
   function scrollChatToLatest(animated = true) {
     requestAnimationFrame(() => {
@@ -1347,7 +1356,7 @@ const hostParticipant = participants.find(
   (p) => p.user_id === room.host_id
 );
 
-const hostIsLive = !!hostParticipant?.can_stream;
+const hostIsLive = hostParticipant?.user_id === currentUserId && isLocalPublishing;
 
 const requestedStreamers = [
   ...participants,
@@ -1372,6 +1381,7 @@ const requestedStreamers = [
     }
 
     if (isLocalPublishing) {
+      setPublisherIntent(false);
       const stopped = await stopStreamer(myParticipant);
 
       if (stopped) {
@@ -1383,15 +1393,19 @@ const requestedStreamers = [
     }
 
     if (myParticipant.can_stream) {
+      setPublisherIntent(true);
       setPublishSignal((current) => current + 1);
       return;
     }
 
     if (isHost) {
+      setPublisherIntent(true);
       const approved = await approveStreamer(myParticipant);
 
       if (approved) {
         setPendingLocalPublish(true);
+      } else {
+        setPublisherIntent(false);
       }
 
       return;
@@ -1433,6 +1447,19 @@ const requestedStreamers = [
       : myParticipant?.stream_status === "requested"
         ? "Needs Approval"
         : "Request Live";
+
+  const shouldConnectLiveKit =
+    !liveState?.signal_authoritative || Boolean(liveState.is_live) || publisherIntent;
+
+  async function handlePublishingChange(publishing: boolean) {
+    setIsLocalPublishing(publishing);
+    if (!publishing) setPublisherIntent(false);
+    const { error } = await supabase.rpc("report_room_live_publisher", {
+      p_room_id: roomId,
+      p_is_live: publishing,
+    });
+    if (error) console.log("ROOM LIVE PUBLISHER REPORT ERROR:", error.message);
+  }
 
   function revealFeedActions() {
     setFeedActionsVisible(true);
@@ -1843,9 +1870,12 @@ const requestedStreamers = [
   isFullscreen={isFullscreenLive}
   onFullscreen={() => setIsFullscreenLive(true)}
   onExitFullscreen={() => setIsFullscreenLive(false)}
-  onPublishingChange={setIsLocalPublishing}
+  onPublishingChange={(publishing) => void handlePublishingChange(publishing)}
   publishSignal={publishSignal}
   stopSignal={stopPublishSignal}
+  shouldConnect={shouldConnectLiveKit}
+  idleMedia={idleMedia}
+  expectedLive={Boolean(liveState?.is_live)}
 />
               ) : (
                 <ImageBackground
@@ -1886,15 +1916,14 @@ const requestedStreamers = [
                 isFullscreen={isFullscreenLive}
                 onFullscreen={() => setIsFullscreenLive(true)}
                 onExitFullscreen={() => setIsFullscreenLive(false)}
-                onPublishingChange={setIsLocalPublishing}
+                onPublishingChange={(publishing) => void handlePublishingChange(publishing)}
                 publishSignal={publishSignal}
                 stopSignal={stopPublishSignal}
+                shouldConnect={shouldConnectLiveKit}
+                idleMedia={idleMedia}
+                expectedLive={Boolean(liveState?.is_live)}
               />
               <View style={styles.feedAlwaysOverlay}>
-                <View style={styles.liveBadgeMobile}>
-                  <Text style={styles.liveBadgeText}>LIVE</Text>
-                </View>
-
                 <View style={styles.viewerPill}>
                   <Text style={styles.viewerPillText}>{room.current_users} viewers</Text>
                 </View>
@@ -1968,7 +1997,7 @@ const requestedStreamers = [
 
           {isDesktop && (
           <View style={styles.streamGrid}>
-  <Text style={styles.streamGridTitle}>Live Cameras</Text>
+  <Text style={styles.streamGridTitle}>Approved Cameras</Text>
 
   <ScrollView
     horizontal
@@ -1995,7 +2024,7 @@ const requestedStreamers = [
           <View style={styles.streamTileOverlay} />
 
           <View style={styles.liveBadgeMobile}>
-            <Text style={styles.liveBadgeText}>LIVE</Text>
+            <Text style={styles.liveBadgeText}>APPROVED</Text>
           </View>
 
           <TouchableOpacity onPress={() => navigateToUser(person.user_id)}>
@@ -2045,9 +2074,16 @@ const requestedStreamers = [
           return;
         }
 
+        if (hostParticipant.can_stream) {
+          setPublisherIntent(true);
+          setPublishSignal((current) => current + 1);
+          return;
+        }
+
         const approved = await approveStreamer(hostParticipant);
 
         if (approved && hostParticipant.user_id === currentUserId) {
+          setPublisherIntent(true);
           setPublishSignal((current) => current + 1);
         }
       }}

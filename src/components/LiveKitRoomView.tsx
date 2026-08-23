@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import {
   Animated,
+  AppState,
   Pressable,
   Alert,
   Modal,
@@ -22,6 +23,8 @@ import {
 import { ConnectionState, Track } from "livekit-client";
 import { supabase } from "../../lib/supabase";
 import type { TrackReference } from "@livekit/react-native";
+import IdleLoopMedia from "./IdleLoopMedia";
+import type { RoomIdleMedia } from "../lib/roomIdleMedia";
 
 registerGlobals();
 
@@ -34,9 +37,21 @@ type Props = {
   onPublishingChange?: (publishing: boolean) => void;
   publishSignal?: number;
   stopSignal?: number;
+  shouldConnect?: boolean;
+  idleMedia?: RoomIdleMedia | null;
+  expectedLive?: boolean;
 };
 
-function VideoGrid() {
+function WaitingSurface({ idleMedia }: { idleMedia?: RoomIdleMedia | null }) {
+  if (idleMedia?.enabled) return <IdleLoopMedia media={idleMedia} />;
+  return (
+    <View style={styles.placeholder}>
+      <Text style={styles.placeholderText}>Waiting for someone to go live...</Text>
+    </View>
+  );
+}
+
+function VideoGrid({ idleMedia, expectedLive }: { idleMedia?: RoomIdleMedia | null; expectedLive?: boolean }) {
  const tracks = useTracks([
   {
     source: Track.Source.Camera,
@@ -54,25 +69,39 @@ function VideoGrid() {
 );
 
   if (videoTracks.length === 0) {
-    return (
-      <View style={styles.placeholder}>
-        <Text style={styles.placeholderText}>
-          Waiting for someone to go live...
-        </Text>
-      </View>
-    );
+    if (expectedLive) {
+      return (
+        <View style={styles.placeholder}>
+          <Text style={styles.placeholderText}>Connecting live stream...</Text>
+        </View>
+      );
+    }
+    return <WaitingSurface idleMedia={idleMedia} />;
   }
 
   const selectedTrack = videoTracks[0];
 
+  return <LiveTrackSurface selectedTrack={selectedTrack} />;
+}
+
+function LiveTrackSurface({ selectedTrack }: { selectedTrack: TrackReference }) {
+  const opacity = useRef(new Animated.Value(0.35)).current;
+  useEffect(() => {
+    Animated.timing(opacity, { duration: 220, toValue: 1, useNativeDriver: true }).start();
+  }, [opacity, selectedTrack.publication?.trackSid]);
+
   return (
-    <View style={styles.feedLayout}>
+    <Animated.View style={[styles.feedLayout, { opacity }]}>
       <View style={styles.mainFeed}>
         <VideoTrack
           trackRef={selectedTrack}
           style={styles.video}
           objectFit="cover"
         />
+
+        <View style={styles.liveBadge}>
+          <Text style={styles.liveBadgeText}>LIVE</Text>
+        </View>
 
         <View style={styles.feedNameBadge}>
           <Text style={styles.feedNameText}>
@@ -83,7 +112,7 @@ function VideoGrid() {
         </View>
       </View>
 
-    </View>
+    </Animated.View>
   );
 }
 
@@ -128,6 +157,7 @@ function StreamControls({
   try {
     await localParticipant.setCameraEnabled(next);
     setCameraOn(next);
+    onPublishingChange?.(next);
   } catch (e) {
     console.log("CAMERA ERROR:", e);
     Alert.alert("Camera Error", "Could not start your camera.");
@@ -149,6 +179,7 @@ async function startPublishing() {
     onPublishingChange?.(true);
   } catch (e) {
     console.log("CAMERA ERROR:", e);
+    onPublishingChange?.(false);
     Alert.alert("Camera Error", "Could not start your camera.");
   }
 
@@ -275,6 +306,48 @@ export default function LiveKitRoomView({
   onPublishingChange,
   publishSignal = 0,
   stopSignal = 0,
+  shouldConnect = true,
+  idleMedia,
+  expectedLive = false,
+}: Props) {
+  const [appIsActive, setAppIsActive] = useState(AppState.currentState === "active");
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => setAppIsActive(state === "active"));
+    return () => subscription.remove();
+  }, []);
+
+  if (!shouldConnect || !appIsActive) {
+    return <WaitingSurface idleMedia={idleMedia} />;
+  }
+
+  return (
+    <ConnectedLiveKitRoom
+      canPublish={canPublish}
+      fullscreen={fullscreen}
+      idleMedia={idleMedia}
+      expectedLive={expectedLive}
+      onExitFullscreen={onExitFullscreen}
+      onPublishingChange={onPublishingChange}
+      publishSignal={publishSignal}
+      roomId={roomId}
+      stopSignal={stopSignal}
+      userId={userId}
+    />
+  );
+}
+
+function ConnectedLiveKitRoom({
+  roomId,
+  userId,
+  canPublish,
+  fullscreen = false,
+  onExitFullscreen,
+  onPublishingChange,
+  publishSignal = 0,
+  stopSignal = 0,
+  idleMedia,
+  expectedLive = false,
 }: Props) {
   const [token, setToken] = useState("");
   const livekitUrl = "wss://partyup-zh7itwg3.livekit.cloud";
@@ -379,6 +452,8 @@ function showControls() {
       onShowControls={showControls}
       publishSignal={publishSignal}
       stopSignal={stopSignal}
+      idleMedia={idleMedia}
+      expectedLive={expectedLive}
     />
   </LiveKitRoom>
 );
@@ -394,6 +469,8 @@ function RoomStreamSurface({
   onShowControls,
   publishSignal,
   stopSignal,
+  idleMedia,
+  expectedLive,
 }: {
   canPublish: boolean;
   controlsOpacity: Animated.Value;
@@ -404,6 +481,8 @@ function RoomStreamSurface({
   onShowControls: () => void;
   publishSignal: number;
   stopSignal: number;
+  idleMedia?: RoomIdleMedia | null;
+  expectedLive: boolean;
 }) {
   const connectionState = useConnectionState();
   const isConnected = connectionState === ConnectionState.Connected;
@@ -421,14 +500,14 @@ function RoomStreamSurface({
 
   return (
     <Pressable style={styles.room} onPress={onShowControls}>
-      <VideoGrid />
+      <VideoGrid expectedLive={expectedLive} idleMedia={idleMedia} />
 
       {!fullscreen && controls}
 
       <Modal visible={fullscreen} animationType="fade">
         <View style={styles.fullscreenPage}>
           <Pressable style={styles.fullscreenRoom} onPress={onShowControls}>
-            <VideoGrid />
+            <VideoGrid expectedLive={expectedLive} idleMedia={idleMedia} />
 
             <View style={styles.fullscreenTop}>
               <TouchableOpacity
@@ -607,5 +686,20 @@ const styles = StyleSheet.create({
     color: "white",
     fontWeight: "900",
     fontSize: 12,
+  },
+  liveBadge: {
+    backgroundColor: "#EF4444",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    position: "absolute",
+    right: 12,
+    top: 12,
+  },
+  liveBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0.7,
   },
 });
