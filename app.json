@@ -46,7 +46,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow PartyUp to scan temporary Mission QR codes.",
+          "cameraPermission": "Allow PartyUp to scan temporary connection and Mission QR codes.",
           "recordAudioAndroid": false
         }
       ],

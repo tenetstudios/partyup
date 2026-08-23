@@ -29,6 +29,7 @@ import {
 } from "../../../../lib/chatReports";
 import { useRoomStreamFrame } from "../../../hooks/useRoomStreamFrame";
 import type { RoomIdleMedia } from "../../../lib/roomIdleMedia";
+import { clearActiveRoomContext, writeActiveRoomContext } from "../../../lib/activeRoomContext";
 
 type RoomType = "party" | "concert" | "dj_set" | "popup" | "sports" | "watch_party";
 type RoomMode = "irl" | "livestream" | "hybrid";
@@ -480,6 +481,7 @@ async function loadHostProfile(hostId: string) {
   }
 
   setRoom(data);
+  if (data.status !== "ended") void writeActiveRoomContext(data.id);
 
   if (
     data.is_private &&
@@ -829,6 +831,8 @@ await supabase
   })
   .eq("id", room.id);
 
+  await clearActiveRoomContext(room.id);
+
   router.replace("/home");
 }
 
@@ -855,6 +859,11 @@ async function startEventMatch() {
     setEventMatchError(reason instanceof Error ? reason.message : "Could not start event Match.");
     setEventMatchLoading(false);
   }
+}
+
+function openPartyUpTap() {
+  if (!room) return;
+  router.push({ pathname: "/connect" as never, params: { roomId: room.id } });
 }
 
 async function shareRoom() {
@@ -1503,6 +1512,24 @@ const requestedStreamers = [
     </View>
   );
 
+  const partyUpTapAction = (
+    <View style={styles.partyUpTapCard}>
+      <View style={styles.eventMatchIntroRow}>
+        <View style={styles.partyUpTapIcon}>
+          <Ionicons name="flash" size={27} color="#FFFFFF" />
+        </View>
+        <View style={styles.eventMatchTextBlock}>
+          <Text style={styles.eventMatchTitle}>Connect with someone here</Text>
+          <Text style={styles.eventMatchSubtitle}>Show or scan a temporary PartyUp Tap.</Text>
+        </View>
+      </View>
+      <TouchableOpacity style={styles.partyUpTapButton} onPress={openPartyUpTap}>
+        <Text style={styles.eventMatchButtonText}>Connect</Text>
+        <Ionicons name="scan" size={22} color="#FFFFFF" />
+      </TouchableOpacity>
+    </View>
+  );
+
   const roomTabs = (
     <View style={styles.roomTabsRow}>
       {[
@@ -1549,6 +1576,7 @@ const requestedStreamers = [
 
   const mobileRoomOverview = (
     <View style={styles.mobileRoomOverview}>
+      {partyUpTapAction}
       {eventMatchAction}
       {roomTabs}
     </View>
@@ -1993,6 +2021,7 @@ const requestedStreamers = [
 
           {!isDesktop && mobileRoomOverview}
 
+          {isDesktop && partyUpTapAction}
           {isDesktop && eventMatchAction}
 
           {isDesktop && (
@@ -3025,6 +3054,36 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.18,
     shadowRadius: 24,
+  },
+  partyUpTapCard: {
+    backgroundColor: "rgba(17, 11, 35, 0.96)",
+    borderColor: "rgba(139,61,255,0.72)",
+    borderRadius: 20,
+    borderWidth: 1,
+    gap: 14,
+    padding: 16,
+    shadowColor: "#8B3DFF",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.24,
+    shadowRadius: 24,
+  },
+  partyUpTapIcon: {
+    alignItems: "center",
+    backgroundColor: "#7C3AED",
+    borderRadius: 30,
+    height: 60,
+    justifyContent: "center",
+    width: 60,
+  },
+  partyUpTapButton: {
+    alignItems: "center",
+    backgroundColor: "#7C3AED",
+    borderRadius: 999,
+    flexDirection: "row",
+    gap: 9,
+    justifyContent: "center",
+    minHeight: 50,
+    paddingHorizontal: 18,
   },
   eventMatchIntroRow: {
     alignItems: "center",

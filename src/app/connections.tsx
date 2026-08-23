@@ -285,10 +285,10 @@ export default function ConnectionsScreen() {
           <View style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>No connections yet.</Text>
             <Text style={styles.emptyText}>
-              When you and someone you meet through Match both choose Keep in Touch, they will appear here.
+              Tap with someone you meet or both choose Keep in Touch after a Match. They will appear here.
             </Text>
-            <TouchableOpacity style={styles.primaryButton} onPress={() => router.push("/match")}>
-              <Text style={styles.primaryButtonText}>Find a Match</Text>
+            <TouchableOpacity style={styles.primaryButton} onPress={() => router.push("/connect" as never)}>
+              <Text style={styles.primaryButtonText}>Make a Connection</Text>
             </TouchableOpacity>
           </View>
         );
@@ -346,8 +346,13 @@ export default function ConnectionsScreen() {
 
       <Text style={styles.title}>Your Circle</Text>
       <Text style={styles.subtitle}>
-        People you met, people you follow, and memories you saved from PartyUp rooms.
+        People you kept through Match or met and Tapped in real life.
       </Text>
+
+      <TouchableOpacity style={styles.connectHeroButton} onPress={() => router.push("/connect" as never)}>
+        <Ionicons name="flash" size={20} color="#FFFFFF" />
+        <Text style={styles.connectHeroText}>Connect on PartyUp</Text>
+      </TouchableOpacity>
 
       <View style={styles.tabRow}>
         {tabs.map((tab) => (
@@ -723,6 +728,18 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 18,
   },
+  connectHeroButton: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: "#7C3AED",
+    borderRadius: 999,
+    flexDirection: "row",
+    gap: 9,
+    marginBottom: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 13,
+  },
+  connectHeroText: { color: "#FFFFFF", fontSize: 15, fontWeight: "900" },
   tab: {
     alignItems: "center",
     backgroundColor: "#10101A",

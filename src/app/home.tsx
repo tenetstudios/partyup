@@ -1223,6 +1223,20 @@ async function syncRoomCounts(roomId: string) {
   </View>
 )}
 
+        <View style={styles.connectCard}>
+          <View style={styles.connectIcon}>
+            <Icon name="bolt" size={25} color="#FFFFFF" />
+          </View>
+          <View style={styles.quickTextBlock}>
+            <Text style={styles.quickTitle}>Connect</Text>
+            <Text style={styles.quickSubtitle}>Tap with someone you just met</Text>
+          </View>
+          <TouchableOpacity style={styles.connectOpenButton} onPress={() => router.push("/connect" as never)}>
+            <Text style={styles.connectOpenText}>Open</Text>
+            <Icon name="chevronRight" size={15} color="#FFFFFF" />
+          </TouchableOpacity>
+        </View>
+
         <View style={styles.matchTestCard}>
           <View style={styles.quickIcon}>
             <Icon name="sparkles" size={24} color="#FDB4D4" />
@@ -2318,6 +2332,42 @@ const styles = StyleSheet.create({
     marginBottom: 32,
     marginTop: 12,
     padding: 14,
+  },
+  connectCard: {
+    alignItems: "center",
+    backgroundColor: "#17102A",
+    borderColor: "#6336A5",
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 18,
+    padding: 14,
+  },
+  connectIcon: {
+    alignItems: "center",
+    backgroundColor: "#7C3AED",
+    borderRadius: 14,
+    height: 50,
+    justifyContent: "center",
+    shadowColor: "#8B3DFF",
+    shadowOpacity: 0.65,
+    shadowRadius: 14,
+    width: 50,
+  },
+  connectOpenButton: {
+    alignItems: "center",
+    backgroundColor: "#7C3AED",
+    borderRadius: 999,
+    flexDirection: "row",
+    gap: 6,
+    minHeight: 44,
+    paddingHorizontal: 16,
+  },
+  connectOpenText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "900",
   },
   quickIcon: {
     alignItems: "center",
