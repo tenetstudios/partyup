@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from "expo-router";
 import * as Linking from "expo-linking";
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import {
   Alert,
   ScrollView,
@@ -19,6 +19,7 @@ import ClearRoomParticipantsCard from "../../../components/ClearRoomParticipants
 import RoomIdleLoopManager from "../../../components/RoomIdleLoopManager";
 
 type Tab = "queue" | "inside" | "streams" | "bouncers" | "settings";
+type SettingsGroupKey = "experience" | "engagement" | "moderation" | "closeout";
 
 type Room = {
   id: string;
@@ -53,7 +54,39 @@ type ActiveAnnouncement = {
   message: string | null;
 };
 
-function RoomDescriptionEditor({ roomId }: { roomId: string }) {
+function SettingsGroup({
+  children,
+  expanded,
+  onToggle,
+  subtitle,
+  title,
+}: {
+  children: ReactNode;
+  expanded: boolean;
+  onToggle: () => void;
+  subtitle: string;
+  title: string;
+}) {
+  return (
+    <View style={[styles.settingsGroup, expanded && styles.settingsGroupExpanded]}>
+      <TouchableOpacity
+        accessibilityRole="button"
+        accessibilityState={{ expanded }}
+        onPress={onToggle}
+        style={styles.settingsGroupHeader}
+      >
+        <View style={styles.settingsGroupCopy}>
+          <Text style={styles.settingsGroupTitle}>{title}</Text>
+          <Text style={styles.settingsGroupSubtitle}>{subtitle}</Text>
+        </View>
+        <Text style={styles.settingsGroupIcon}>{expanded ? "−" : "+"}</Text>
+      </TouchableOpacity>
+      {expanded ? <View style={styles.settingsGroupBody}>{children}</View> : null}
+    </View>
+  );
+}
+
+function RoomDescriptionEditor({ roomId, embedded = false }: { roomId: string; embedded?: boolean }) {
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -78,7 +111,7 @@ function RoomDescriptionEditor({ roomId }: { roomId: string }) {
   }
 
   return (
-    <View style={styles.setupCard}>
+    <View style={[styles.setupCard, embedded && styles.embeddedSection]}>
       <Text style={styles.name}>Room description</Text>
       <Text style={styles.meta}>Shown to guests before and after they enter the room.</Text>
       <TextInput
@@ -98,7 +131,7 @@ function RoomDescriptionEditor({ roomId }: { roomId: string }) {
   );
 }
 
-function RoomEntryQrCard({ roomId, roomTitle }: { roomId: string; roomTitle: string }) {
+function RoomEntryQrCard({ roomId, roomTitle, embedded = false }: { roomId: string; roomTitle: string; embedded?: boolean }) {
   const entryUrl = Linking.createURL(`/room/${roomId}`);
 
   async function shareEntry() {
@@ -110,7 +143,7 @@ function RoomEntryQrCard({ roomId, roomTitle }: { roomId: string; roomTitle: str
   }
 
   return (
-    <View style={styles.setupCard}>
+    <View style={[styles.setupCard, embedded && styles.embeddedSection]}>
       <Text style={styles.name}>Room QR code</Text>
       <Text style={styles.meta}>Guests with PartyUp can scan this code to open the room.</Text>
       <View style={styles.qrBox}><QRCode value={entryUrl} size={190} /></View>
@@ -248,6 +281,11 @@ export default function ManageRoomPage() {
   const [roomDeleted, setRoomDeleted] = useState(false);
   const [afterEventMessage, setAfterEventMessage] = useState("");
   const [closeoutBusy, setCloseoutBusy] = useState(false);
+  const [openSettingsGroup, setOpenSettingsGroup] = useState<SettingsGroupKey | null>("experience");
+
+  const toggleSettingsGroup = (group: SettingsGroupKey) => {
+    setOpenSettingsGroup((current) => (current === group ? null : group));
+  };
 
   useEffect(() => {
   if (roomDeleted) return;
@@ -1026,100 +1064,114 @@ async function endEvent() {
         <View>
           <Text style={styles.sectionTitle}>Room Settings</Text>
 
-          {isHost && <RoomDescriptionEditor roomId={room.id} />}
-          {isHost && <RoomEntryQrCard roomId={room.id} roomTitle={room.title} />}
-          {isHost && <RoomAnnouncementEditor roomId={room.id} />}
-          {isHost && <RoomChatModerationSettings roomId={room.id} />}
-          {isHost && <RoomIdleLoopManager roomId={room.id} />}
+          {isHost ? (
+            <>
+              <SettingsGroup
+                title="Room & broadcast"
+                subtitle="Room details, guest access, and what plays between live streams."
+                expanded={openSettingsGroup === "experience"}
+                onToggle={() => toggleSettingsGroup("experience")}
+              >
+                <RoomDescriptionEditor roomId={room.id} embedded />
+                <View style={styles.settingsDivider} />
+                <View style={styles.settingsSubsection}>
+                  <Text style={styles.name}>Guest access</Text>
+                  <Text style={styles.meta}>
+                    This room is currently {room.is_private ? "private" : "public"}.
+                  </Text>
+                  <TouchableOpacity style={styles.privacyButton} onPress={toggleRoomPrivacy}>
+                    <Text style={styles.buttonText}>
+                      {room.is_private ? "Make Room Public" : "Make Room Private"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.settingsDivider} />
+                <RoomEntryQrCard roomId={room.id} roomTitle={room.title} embedded />
+                <View style={styles.settingsDivider} />
+                <RoomIdleLoopManager roomId={room.id} embedded />
+                <View style={styles.settingsDivider} />
+                <View style={styles.settingsSubsection}>
+                  <Text style={styles.settingsEyebrow}>EXTERNAL STREAMING</Text>
+                  <Text style={styles.name}>Broadcast with OBS</Text>
+                  <Text style={styles.meta}>
+                    Create or view the server URL and stream key for this room.
+                  </Text>
+                  <TouchableOpacity style={styles.obsButton} onPress={startOBSStream}>
+                    <Text style={styles.buttonText}>Get OBS Credentials</Text>
+                  </TouchableOpacity>
+                </View>
+              </SettingsGroup>
 
-          <View style={styles.card}>
-            <Text style={styles.name}>Capacity</Text>
-            <Text style={styles.meta}>
-              {room.current_users}/{room.max_users} inside
-            </Text>
-          </View>
+              <SettingsGroup
+                title="Engagement"
+                subtitle="Announcements and activities for everyone in the room."
+                expanded={openSettingsGroup === "engagement"}
+                onToggle={() => toggleSettingsGroup("engagement")}
+              >
+                <RoomAnnouncementEditor roomId={room.id} />
+                <RoomMissionManager roomId={room.id} isHost={isHost} />
+              </SettingsGroup>
 
-          <View style={styles.card}>
-            <Text style={styles.name}>Queue</Text>
-            <Text style={styles.meta}>{queue.length} waiting</Text>
-          </View>
+              <SettingsGroup
+                title="Safety & access"
+                subtitle="Chat controls and participant cleanup."
+                expanded={openSettingsGroup === "moderation"}
+                onToggle={() => toggleSettingsGroup("moderation")}
+              >
+                <RoomChatModerationSettings roomId={room.id} />
+                <ClearRoomParticipantsCard
+                  hostId={room.host_id}
+                  onCleared={loadAll}
+                  roomId={room.id}
+                />
+              </SettingsGroup>
 
-          {isHost && (
-  <>
-    <TouchableOpacity
-      style={styles.privacyButton}
-      onPress={toggleRoomPrivacy}
-    >
-      <Text style={styles.buttonText}>
-        {room.is_private
-          ? "Make Room Public"
-          : "Make Room Private"}
-      </Text>
-    </TouchableOpacity>
-
-  </>
-)}
-    <RoomMissionManager roomId={room.id} isHost={isHost} />
-          {isHost && (
-  <>
-    <View style={styles.advancedCard}>
-      <Text style={styles.name}>OBS / External Stream</Text>
-      <Text style={styles.meta}>
-        Create or view the server URL and stream key for broadcasting from OBS.
-      </Text>
-
-      <TouchableOpacity
-        style={styles.obsButton}
-        onPress={startOBSStream}
-      >
-        <Text style={styles.buttonText}>
-          Get OBS Credentials
-        </Text>
-      </TouchableOpacity>
-    </View>
-
-    {room.status !== "ended" ? (
-      <View style={styles.closeoutCard}>
-        <Text style={styles.closeoutEyebrow}>FINAL STEP</Text>
-        <Text style={styles.name}>Event closeout</Text>
-        <Text style={styles.meta}>Leave guests an optional note in their recap, then end the event.</Text>
-        <TextInput
-          value={afterEventMessage}
-          onChangeText={setAfterEventMessage}
-          maxLength={500}
-          multiline
-          numberOfLines={4}
-          placeholder="Thanks for coming. See you next time."
-          placeholderTextColor="#71717A"
-          style={styles.descriptionInput}
-        />
-        <TouchableOpacity style={styles.endEventButton} onPress={endEvent}>
-          <Text style={styles.buttonText}>{closeoutBusy ? "Saving & ending..." : afterEventMessage.trim() ? "Save Message & End Event" : "End Event"}</Text>
-        </TouchableOpacity>
-      </View>
-    ) : (
-      <View style={styles.advancedCard}>
-        <Text style={styles.name}>Event ended</Text>
-        <Text style={styles.meta}>History and Memories are retained.</Text>
-      </View>
-    )}
-
-    <ClearRoomParticipantsCard
-      hostId={room.host_id}
-      onCleared={loadAll}
-      roomId={room.id}
-    />
-
-    <TouchableOpacity
-      style={styles.deleteButton}
-      onPress={deleteRoom}
-    >
-      <Text style={styles.buttonText}>
-        Delete Room
-      </Text>
-    </TouchableOpacity>
-  </>
-)}
+              <SettingsGroup
+                title="Event lifecycle"
+                subtitle="End the event, leave a recap note, or permanently delete it."
+                expanded={openSettingsGroup === "closeout"}
+                onToggle={() => toggleSettingsGroup("closeout")}
+              >
+                {room.status !== "ended" ? (
+                  <View style={styles.closeoutSection}>
+                    <Text style={styles.closeoutEyebrow}>FINAL STEP</Text>
+                    <Text style={styles.name}>Event closeout</Text>
+                    <Text style={styles.meta}>Leave guests an optional note in their recap, then end the event.</Text>
+                    <TextInput
+                      value={afterEventMessage}
+                      onChangeText={setAfterEventMessage}
+                      maxLength={500}
+                      multiline
+                      numberOfLines={4}
+                      placeholder="Thanks for coming. See you next time."
+                      placeholderTextColor="#71717A"
+                      style={styles.descriptionInput}
+                    />
+                    <TouchableOpacity style={styles.endEventButton} onPress={endEvent}>
+                      <Text style={styles.buttonText}>{closeoutBusy ? "Saving & ending..." : afterEventMessage.trim() ? "Save Message & End Event" : "End Event"}</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <View style={styles.settingsSubsection}>
+                    <Text style={styles.name}>Event ended</Text>
+                    <Text style={styles.meta}>History and Memories are retained.</Text>
+                  </View>
+                )}
+                <TouchableOpacity style={styles.deleteButton} onPress={deleteRoom}>
+                  <Text style={styles.buttonText}>Delete Room</Text>
+                </TouchableOpacity>
+              </SettingsGroup>
+            </>
+          ) : (
+            <SettingsGroup
+              title="Room activity"
+              subtitle="View the activities configured by the host."
+              expanded={openSettingsGroup === "engagement"}
+              onToggle={() => toggleSettingsGroup("engagement")}
+            >
+              <RoomMissionManager roomId={room.id} isHost={false} />
+            </SettingsGroup>
+          )}
         </View>
       )}
       
@@ -1206,6 +1258,77 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
 
+  settingsGroup: {
+    backgroundColor: "rgba(17, 16, 27, 0.92)",
+    borderColor: "rgba(168,85,247,0.18)",
+    borderRadius: 22,
+    borderWidth: 1,
+    marginBottom: 12,
+    overflow: "hidden",
+  },
+  settingsGroupExpanded: {
+    borderColor: "rgba(168,85,247,0.42)",
+  },
+  settingsGroupHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 14,
+    minHeight: 76,
+    paddingHorizontal: 18,
+    paddingVertical: 15,
+  },
+  settingsGroupCopy: {
+    flex: 1,
+  },
+  settingsGroupTitle: {
+    color: "#FFFFFF",
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  settingsGroupSubtitle: {
+    color: "#A1A1AA",
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 18,
+    marginTop: 4,
+  },
+  settingsGroupIcon: {
+    color: "#C4B5FD",
+    fontSize: 26,
+    fontWeight: "500",
+    textAlign: "center",
+    width: 24,
+  },
+  settingsGroupBody: {
+    borderTopColor: "rgba(255,255,255,0.08)",
+    borderTopWidth: 1,
+    padding: 18,
+  },
+  settingsSubsection: {
+    paddingVertical: 2,
+  },
+  settingsDivider: {
+    backgroundColor: "rgba(255,255,255,0.08)",
+    height: 1,
+    marginVertical: 20,
+  },
+  settingsEyebrow: {
+    color: "#A78BFA",
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 1,
+    marginBottom: 7,
+  },
+  embeddedSection: {
+    backgroundColor: "transparent",
+    borderWidth: 0,
+    marginBottom: 0,
+    padding: 0,
+  },
+  closeoutSection: {
+    paddingVertical: 2,
+  },
+
   card: {
     backgroundColor: "#11101B",
     borderRadius: 24,
@@ -1213,15 +1336,6 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     borderWidth: 1,
     borderColor: "rgba(124,58,237,0.18)",
-  },
-  advancedCard: {
-    backgroundColor: "rgba(17, 16, 27, 0.92)",
-    borderRadius: 22,
-    padding: 16,
-    marginTop: 16,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: "rgba(168,85,247,0.18)",
   },
   setupCard: {
     backgroundColor: "rgba(17, 16, 27, 0.96)",
@@ -1315,15 +1429,6 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     marginTop: 16,
     padding: 16,
-  },
-  closeoutCard: {
-    backgroundColor: "rgba(76,29,149,0.22)",
-    borderColor: "rgba(196,181,253,0.32)",
-    borderRadius: 22,
-    borderWidth: 1,
-    marginBottom: 8,
-    marginTop: 24,
-    padding: 18,
   },
   closeoutEyebrow: {
     color: "#C4B5FD",

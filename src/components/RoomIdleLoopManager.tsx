@@ -8,7 +8,7 @@ import IdleLoopMedia from "./IdleLoopMedia";
 const VIDEO_LIMIT = 20 * 1024 * 1024;
 const GIF_LIMIT = 10 * 1024 * 1024;
 
-export default function RoomIdleLoopManager({ roomId }: { roomId: string }) {
+export default function RoomIdleLoopManager({ roomId, embedded = false }: { roomId: string; embedded?: boolean }) {
   const [media, setMedia] = useState<RoomIdleMedia | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -120,7 +120,7 @@ export default function RoomIdleLoopManager({ roomId }: { roomId: string }) {
   }
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, embedded && styles.embedded]}>
       <Text style={styles.eyebrow}>HOST IDLE LOOP</Text>
       <Text style={styles.title}>Keep the room warm between streams</Text>
       <Text style={styles.meta}>Upload a muted, looping MP4 (up to 30 seconds / 20 MB) or GIF (up to 10 MB). Live video always takes priority.</Text>
@@ -146,6 +146,7 @@ export default function RoomIdleLoopManager({ roomId }: { roomId: string }) {
 
 const styles = StyleSheet.create({
   card: { backgroundColor: "#111118", borderColor: "#292936", borderRadius: 22, borderWidth: 1, gap: 12, marginBottom: 16, padding: 18 },
+  embedded: { backgroundColor: "transparent", borderWidth: 0, marginBottom: 0, padding: 0 },
   eyebrow: { color: "#A78BFA", fontSize: 11, fontWeight: "900", letterSpacing: 1 },
   title: { color: "#FFFFFF", fontSize: 17, fontWeight: "900" },
   label: { color: "#FFFFFF", fontWeight: "800" },
