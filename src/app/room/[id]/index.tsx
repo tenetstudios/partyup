@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import {
   Alert,
-  FlatList,
   Image,
   ImageBackground,
   Modal,
@@ -304,7 +303,7 @@ export default function RoomScreen() {
   const [reportDetails, setReportDetails] = useState("");
   const [reportSubmitting, setReportSubmitting] = useState(false);
   const [reportedMessageIds, setReportedMessageIds] = useState<Set<string>>(() => new Set());
-  const chatListRef = useRef<FlatList<any> | null>(null);
+  const chatListRef = useRef<ScrollView | null>(null);
   const feedActionsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { idleMedia, liveState } = useRoomStreamFrame(roomId);
 
@@ -1584,23 +1583,8 @@ const requestedStreamers = [
 
   const chatSection = (
     <View style={[styles.chatPane, !isDesktop && styles.chatPaneMobile]}>
-      <FlatList
+      <ScrollView
         ref={chatListRef}
-        data={[
-  ...activities.map((activity) => ({
-    ...activity,
-    isActivity: true,
-  })),
-  ...messages.map((message) => ({
-    ...message,
-    isActivity: false,
-  })),
-].sort(
-  (a, b) =>
-    new Date(a.created_at).getTime() -
-    new Date(b.created_at).getTime()
-)}
-        keyExtractor={(item) => item.id}
         style={styles.chatList}
         contentContainerStyle={styles.chatListContent}
         keyboardShouldPersistTaps="handled"
@@ -1609,10 +1593,16 @@ const requestedStreamers = [
         onLayout={() => scrollChatToLatest(false)}
         scrollEnabled
         showsVerticalScrollIndicator
-        renderItem={({ item }: { item: any }) => {
+      >
+        {[
+          ...activities.map((activity) => ({ ...activity, isActivity: true })),
+          ...messages.map((message) => ({ ...message, isActivity: false })),
+        ].sort(
+          (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+        ).map((item: any) => {
   if (item.isActivity) {
     return (
-      <View style={styles.activityCard}>
+      <View key={item.id} style={styles.activityCard}>
         <Text style={styles.activityText}>
           {item.message}
         </Text>
@@ -1636,7 +1626,7 @@ const requestedStreamers = [
   const isMessageBouncer = messageParticipant?.room_role === "bouncer";
 
   return (
-    <View style={[styles.messageCard, !isDesktop && styles.messageCardMobile]}>
+    <View key={item.id} style={[styles.messageCard, !isDesktop && styles.messageCardMobile]}>
       <View style={styles.messageHeader}>
         <TouchableOpacity
           style={styles.messageUserRow}
@@ -1682,9 +1672,9 @@ const requestedStreamers = [
     </View>
   );
 
-}}
-        ListEmptyComponent={<Text style={styles.empty}>No messages yet.</Text>}
-      />
+})}
+        {messages.length === 0 && activities.length === 0 && <Text style={styles.empty}>No messages yet.</Text>}
+      </ScrollView>
 
       {typingUsers.length > 0 && (
         <View style={styles.typingPill}>
@@ -2319,15 +2309,12 @@ const requestedStreamers = [
     {queue.length === 0 ? (
       <Text style={styles.empty}>No one is waiting yet.</Text>
     ) : (
-      <FlatList
-        data={queue}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => {
+      queue.map((item) => {
           const displayName = getDisplayName(item);
           const avatarUrl = getAvatarUrl(item);
 
           return (
-            <View style={styles.queueCard}>
+            <View key={item.id} style={styles.queueCard}>
               <View style={styles.profileRow}>
                 {avatarUrl ? (
                   <Image source={{ uri: avatarUrl }} style={styles.avatar} />
@@ -2369,8 +2356,7 @@ const requestedStreamers = [
               )}
             </View>
           );
-        }}
-      />
+        })
     )}
   </View>
 )}

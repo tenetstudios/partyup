@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import QRCode from "react-native-qrcode-svg";
 import { Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
@@ -45,6 +45,11 @@ export default function RoomMissionCard({ roomId }: { roomId: string }) {
   const [scanLocked, setScanLocked] = useState(false);
   const [torchEnabled, setTorchEnabled] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
+  const missionRef = useRef<RoomMission | null>(null);
+  const guestTokenRef = useRef<string | null>(null);
+
+  missionRef.current = mission;
+  guestTokenRef.current = guestToken;
 
   const loadMission = useCallback(async () => {
     const next = await getActiveRoomMission(supabase, roomId);
@@ -66,18 +71,43 @@ export default function RoomMissionCard({ roomId }: { roomId: string }) {
   }, [refreshState]);
 
   useEffect(() => {
+    let active = true;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
     setNow(Date.now());
     void loadMission().catch((reason) => setError(reason instanceof Error ? reason.message : "Could not load the Mission."));
-    const channel = supabase
-      .channel(`mobile-room-missions-${roomId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "room_missions", filter: `room_id=eq.${roomId}` }, () => void loadMission())
-      .on("postgres_changes", { event: "*", schema: "public", table: "mission_completions" }, () => void loadMission())
-      .on("postgres_changes", { event: "*", schema: "public", table: "mission_encounters" }, () => {
-        if (mission?.mission_type === "animal_pack") void refreshState(mission.id, guestToken);
-      })
-      .subscribe();
-    return () => { void supabase.removeChannel(channel); };
-  }, [guestToken, loadMission, mission?.id, mission?.mission_type, refreshState, roomId]);
+
+    const subscribe = async () => {
+      const channelName = `mobile-room-missions-${roomId}`;
+      const existingChannel = supabase
+        .getChannels()
+        .find((candidate) => candidate.topic === `realtime:${channelName}`);
+
+      if (existingChannel) await supabase.removeChannel(existingChannel);
+      if (!active) return;
+
+      channel = supabase
+        .channel(channelName)
+        .on("postgres_changes", { event: "*", schema: "public", table: "room_missions", filter: `room_id=eq.${roomId}` }, () => void loadMission())
+        .on("postgres_changes", { event: "*", schema: "public", table: "mission_completions" }, () => void loadMission())
+        .on("postgres_changes", { event: "*", schema: "public", table: "mission_encounters" }, () => {
+          const currentMission = missionRef.current;
+          if (currentMission?.mission_type === "animal_pack") {
+            void refreshState(currentMission.id, guestTokenRef.current);
+          }
+        })
+        .subscribe();
+    };
+
+    void subscribe().catch((reason) => {
+      if (active) setError(reason instanceof Error ? reason.message : "Could not subscribe to Mission updates.");
+    });
+
+    return () => {
+      active = false;
+      if (channel) void supabase.removeChannel(channel);
+    };
+  }, [loadMission, refreshState, roomId]);
 
   useEffect(() => {
     if (!mission?.ends_at) return;

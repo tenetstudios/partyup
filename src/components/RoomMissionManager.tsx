@@ -67,6 +67,9 @@ export default function RoomMissionManager({
   const [error, setError] = useState<string | null>(null);
   const recommendedParticipants = animalCount * (targetEncounters + 1);
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const missionIdRef = useRef<string | null>(null);
+
+  missionIdRef.current = mission?.id ?? null;
 
   const loadData = useCallback(async () => {
     const nextMission = await getActiveRoomMission(supabase, roomId);
@@ -89,42 +92,53 @@ export default function RoomMissionManager({
   }, [loadData]);
 
   useEffect(() => {
+    let active = true;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
     void loadData().catch((reason) => {
       setError(reason instanceof Error ? reason.message : "Could not load Missions.");
     });
 
-    const channel = supabase
-      .channel(`mobile-manage-missions-${roomId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "room_missions", filter: `room_id=eq.${roomId}` },
-        scheduleLoadData,
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "mission_participant_assignments", filter: `mission_id=eq.${mission?.id ?? "00000000-0000-0000-0000-000000000000"}` },
-        scheduleLoadData,
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "mission_encounters", filter: `mission_id=eq.${mission?.id ?? "00000000-0000-0000-0000-000000000000"}` },
-        scheduleLoadData,
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "mission_completions", filter: `mission_id=eq.${mission?.id ?? "00000000-0000-0000-0000-000000000000"}` },
-        scheduleLoadData,
-      )
-      .subscribe();
+    const refreshCurrentMission = (payload: { new?: Record<string, unknown>; old?: Record<string, unknown> }) => {
+      const changedMissionId = payload.new?.mission_id ?? payload.old?.mission_id;
+      if (!changedMissionId || changedMissionId === missionIdRef.current) scheduleLoadData();
+    };
+
+    const subscribe = async () => {
+      const channelName = `mobile-manage-missions-${roomId}`;
+      const existingChannel = supabase
+        .getChannels()
+        .find((candidate) => candidate.topic === `realtime:${channelName}`);
+
+      if (existingChannel) await supabase.removeChannel(existingChannel);
+      if (!active) return;
+
+      channel = supabase
+        .channel(channelName)
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "room_missions", filter: `room_id=eq.${roomId}` },
+          scheduleLoadData,
+        )
+        .on("postgres_changes", { event: "*", schema: "public", table: "mission_participant_assignments" }, refreshCurrentMission)
+        .on("postgres_changes", { event: "*", schema: "public", table: "mission_encounters" }, refreshCurrentMission)
+        .on("postgres_changes", { event: "*", schema: "public", table: "mission_completions" }, refreshCurrentMission)
+        .subscribe();
+    };
+
+    void subscribe().catch((reason) => {
+      if (active) setError(reason instanceof Error ? reason.message : "Could not subscribe to Mission updates.");
+    });
 
     return () => {
+      active = false;
       if (refreshTimeoutRef.current) {
         clearTimeout(refreshTimeoutRef.current);
         refreshTimeoutRef.current = null;
       }
-      void supabase.removeChannel(channel);
+      if (channel) void supabase.removeChannel(channel);
     };
-  }, [loadData, mission?.id, roomId, scheduleLoadData]);
+  }, [loadData, roomId, scheduleLoadData]);
 
   useEffect(() => {
     if (!mission?.ends_at) return;
