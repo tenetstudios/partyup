@@ -1575,8 +1575,52 @@ const requestedStreamers = [
 
   const mobileRoomOverview = (
     <View style={styles.mobileRoomOverview}>
-      {partyUpTapAction}
-      {eventMatchAction}
+      <View style={styles.mobileRoomActionsRow}>
+        <TouchableOpacity
+          accessibilityRole="button"
+          style={[styles.mobileRoomActionCard, styles.mobileTapActionCard]}
+          onPress={openPartyUpTap}
+        >
+          <View style={styles.mobileRoomActionTopRow}>
+            <View style={[styles.mobileRoomActionIcon, styles.mobileTapActionIcon]}>
+              <Ionicons name="flash" size={20} color="#FFFFFF" />
+            </View>
+            <Ionicons name="scan-outline" size={19} color="#C4B5FD" />
+          </View>
+          <View style={styles.mobileRoomActionCopy}>
+            <Text style={styles.mobileRoomActionTitle}>Connect with someone here</Text>
+            <Text style={styles.mobileRoomActionSubtitle}>Show or scan a temporary PartyUp Tap.</Text>
+          </View>
+          <Text style={styles.mobileRoomActionLabel}>Connect</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityState={{ disabled: eventMatchLoading }}
+          style={[
+            styles.mobileRoomActionCard,
+            styles.mobileMatchActionCard,
+            eventMatchLoading && styles.disabledButton,
+          ]}
+          onPress={startEventMatch}
+          disabled={eventMatchLoading}
+        >
+          <View style={styles.mobileRoomActionTopRow}>
+            <View style={[styles.mobileRoomActionIcon, styles.mobileMatchActionIcon]}>
+              <Ionicons name="sparkles" size={20} color="#FF6CAB" />
+            </View>
+            <Ionicons name="chevron-forward" size={19} color="#F9A8D4" />
+          </View>
+          <View style={styles.mobileRoomActionCopy}>
+            <Text style={styles.mobileRoomActionTitle}>Match with people here</Text>
+            <Text style={styles.mobileRoomActionSubtitle}>Meet someone else in this event.</Text>
+          </View>
+          <Text style={[styles.mobileRoomActionLabel, styles.mobileMatchActionLabel]}>
+            {eventMatchLoading ? "Opening..." : "Match"}
+          </Text>
+        </TouchableOpacity>
+      </View>
+      {eventMatchError && <Text style={styles.eventMatchError}>{eventMatchError}</Text>}
       {roomTabs}
     </View>
   );
@@ -2757,6 +2801,72 @@ const styles = StyleSheet.create({
   mobileRoomOverview: {
     gap: 12,
     marginBottom: 14,
+  },
+  mobileRoomActionsRow: {
+    alignItems: "stretch",
+    flexDirection: "row",
+    gap: 10,
+  },
+  mobileRoomActionCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    flex: 1,
+    minHeight: 168,
+    minWidth: 0,
+    padding: 12,
+  },
+  mobileTapActionCard: {
+    backgroundColor: "rgba(17, 11, 35, 0.96)",
+    borderColor: "rgba(139,61,255,0.72)",
+  },
+  mobileMatchActionCard: {
+    backgroundColor: "rgba(10, 9, 21, 0.94)",
+    borderColor: "rgba(236,72,153,0.55)",
+  },
+  mobileRoomActionTopRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  mobileRoomActionIcon: {
+    alignItems: "center",
+    borderRadius: 18,
+    height: 36,
+    justifyContent: "center",
+    width: 36,
+  },
+  mobileTapActionIcon: {
+    backgroundColor: "#7C3AED",
+  },
+  mobileMatchActionIcon: {
+    backgroundColor: "rgba(236,72,153,0.12)",
+    borderColor: "rgba(236,72,153,0.38)",
+    borderWidth: 1,
+  },
+  mobileRoomActionCopy: {
+    flex: 1,
+    marginTop: 10,
+  },
+  mobileRoomActionTitle: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "900",
+    lineHeight: 19,
+  },
+  mobileRoomActionSubtitle: {
+    color: "#C2B7ED",
+    fontSize: 12,
+    lineHeight: 16,
+    marginTop: 4,
+  },
+  mobileRoomActionLabel: {
+    color: "#C4B5FD",
+    fontSize: 13,
+    fontWeight: "900",
+    marginTop: 10,
+  },
+  mobileMatchActionLabel: {
+    color: "#F9A8D4",
   },
   onlineDot: {
     backgroundColor: "#22C55E",
