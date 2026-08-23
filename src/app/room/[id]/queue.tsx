@@ -15,6 +15,7 @@ import QRCode from "react-native-qrcode-svg";
 import { supabase } from "../../../../lib/supabase";
 import RoomMissionManager from "../../../components/RoomMissionManager";
 import RoomChatModerationSettings from "../../../components/RoomChatModerationSettings";
+import ClearRoomParticipantsCard from "../../../components/ClearRoomParticipantsCard";
 
 type Tab = "queue" | "inside" | "streams" | "bouncers" | "settings";
 
@@ -1100,6 +1101,12 @@ async function endEvent() {
         <Text style={styles.meta}>History and Memories are retained.</Text>
       </View>
     )}
+
+    <ClearRoomParticipantsCard
+      hostId={room.host_id}
+      onCleared={loadAll}
+      roomId={room.id}
+    />
 
     <TouchableOpacity
       style={styles.deleteButton}
