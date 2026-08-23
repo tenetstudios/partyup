@@ -1629,7 +1629,7 @@ const requestedStreamers = [
     <View style={[styles.chatPane, !isDesktop && styles.chatPaneMobile]}>
       <ScrollView
         ref={chatListRef}
-        style={styles.chatList}
+        style={[styles.chatList, !isDesktop && styles.chatListMobile]}
         contentContainerStyle={styles.chatListContent}
         keyboardShouldPersistTaps="handled"
         nestedScrollEnabled
@@ -3446,6 +3446,9 @@ const styles = StyleSheet.create({
   chatList: {
     height: 150,
     marginBottom: 8,
+  },
+  chatListMobile: {
+    marginHorizontal: 20,
   },
   chatListContent: {
     paddingBottom: 6,

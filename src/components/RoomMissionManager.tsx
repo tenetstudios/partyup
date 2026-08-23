@@ -16,6 +16,7 @@ import {
   getRoomMissionHistory,
   publishRoomMission,
   publishAnimalPackMission,
+  publishConnectionMission,
   type MissionCompletedParticipants,
   type MissionOperationsDashboard as MissionOperationsData,
   type RoomMission,
@@ -50,12 +51,13 @@ export default function RoomMissionManager({
   const [mission, setMission] = useState<RoomMission | null>(null);
   const [history, setHistory] = useState<RoomMissionHistoryItem[]>([]);
   const [creating, setCreating] = useState(false);
-  const [missionType, setMissionType] = useState<"generic" | "animal_pack">("generic");
+  const [missionType, setMissionType] = useState<"generic" | "animal_pack" | "connection">("generic");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [duration, setDuration] = useState<number | null>(10);
   const [animalCount, setAnimalCount] = useState(6);
   const [targetEncounters, setTargetEncounters] = useState(3);
+  const [targetConnections, setTargetConnections] = useState("3");
   const [hostResults, setHostResults] = useState<MissionCompletedParticipants | null>(null);
   const [operations, setOperations] = useState<MissionOperationsData | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
@@ -69,12 +71,18 @@ export default function RoomMissionManager({
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const missionIdRef = useRef<string | null>(null);
 
-  missionIdRef.current = mission?.id ?? null;
+  useEffect(() => {
+    missionIdRef.current = mission?.id ?? null;
+  }, [mission?.id]);
 
   const loadData = useCallback(async () => {
     const nextMission = await getActiveRoomMission(supabase, roomId);
     setMission(nextMission);
-    setOperations(isHost && nextMission ? await getMissionOperationsDashboard(supabase, nextMission.id) : null);
+    setOperations(
+      isHost && nextMission && nextMission.mission_type !== "connection"
+        ? await getMissionOperationsDashboard(supabase, nextMission.id)
+        : null,
+    );
 
     if (isHost) {
       setHistory(await getRoomMissionHistory(supabase, roomId, 5));
@@ -164,12 +172,18 @@ export default function RoomMissionManager({
           targetEncounters,
           durationMinutes: duration ?? 10,
         });
+      } else if (missionType === "connection") {
+        await publishConnectionMission(supabase, roomId, {
+          targetConnections: Number(targetConnections),
+          durationMinutes: duration ?? 10,
+        });
       } else {
         await publishRoomMission(supabase, roomId, { title, description, durationMinutes: duration });
       }
       setTitle("");
       setDescription("");
       setDuration(10);
+      setTargetConnections("3");
       setMissionType("generic");
       setCreating(false);
       setShowCompleted(false);
@@ -323,9 +337,18 @@ export default function RoomMissionManager({
         <View style={styles.form}>
           <Text style={styles.label}>Mission Type</Text>
           <View style={styles.durationRow}>
-            {(["generic", "animal_pack"] as const).map((value) => (
-              <TouchableOpacity key={value} style={[styles.durationButton, missionType === value && styles.durationButtonActive]} onPress={() => setMissionType(value)}>
-                <Text style={[styles.durationText, missionType === value && styles.durationTextActive]}>{value === "generic" ? "Standard Mission" : "Find Your Pack"}</Text>
+            {(["generic", "animal_pack", "connection"] as const).map((value) => (
+              <TouchableOpacity
+                key={value}
+                style={[styles.durationButton, missionType === value && styles.durationButtonActive]}
+                onPress={() => {
+                  setMissionType(value);
+                  if (value !== "generic" && duration === null) setDuration(10);
+                }}
+              >
+                <Text style={[styles.durationText, missionType === value && styles.durationTextActive]}>
+                  {value === "generic" ? "Standard" : value === "animal_pack" ? "Find Your Pack" : "Meet New People"}
+                </Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -353,7 +376,7 @@ export default function RoomMissionManager({
             style={[styles.input, styles.descriptionInput]}
           />
             </>
-          ) : (
+          ) : missionType === "animal_pack" ? (
             <>
               <Text style={styles.label}>Number of animal groups</Text>
               <View style={styles.durationRow}>{[4, 6, 8, 10, 12].map((value) => <TouchableOpacity key={value} style={[styles.durationButton, animalCount === value && styles.durationButtonActive]} onPress={() => setAnimalCount(value)}><Text style={[styles.durationText, animalCount === value && styles.durationTextActive]}>{value}</Text></TouchableOpacity>)}</View>
@@ -361,6 +384,24 @@ export default function RoomMissionManager({
               <View style={styles.durationRow}>{[1, 2, 3].map((value) => <TouchableOpacity key={value} style={[styles.durationButton, targetEncounters === value && styles.durationButtonActive]} onPress={() => setTargetEncounters(value)}><Text style={[styles.durationText, targetEncounters === value && styles.durationTextActive]}>{value}</Text></TouchableOpacity>)}</View>
               <View style={styles.capacityNotice}>
                 <Text style={styles.capacityNoticeText}>For every participant to have enough possible pack members, plan for at least <Text style={styles.capacityNoticeStrong}>{recommendedParticipants} participants</Text>.</Text>
+              </View>
+            </>
+          ) : (
+            <>
+              <Text style={styles.label}>New people each participant must meet</Text>
+              <TextInput
+                value={targetConnections}
+                onChangeText={(value) => setTargetConnections(value.replace(/\D/g, ""))}
+                keyboardType="number-pad"
+                maxLength={2}
+                placeholder="3"
+                placeholderTextColor="#71717A"
+                style={styles.input}
+              />
+              <View style={styles.capacityNotice}>
+                <Text style={styles.capacityNoticeText}>
+                  Counts distinct, first-time PartyUp Tap connections made in this room before the timer ends. Choose 1 to 20 people.
+                </Text>
               </View>
             </>
           )}
@@ -401,8 +442,10 @@ export default function RoomMissionManager({
                 </View>
                 <Text style={styles.historyCount}>{item.completion_count} completed</Text>
               </View>
-              <TouchableOpacity style={styles.historyResultsButton} onPress={() => void toggleHistoryOperations(item.id)}><Text style={styles.historyResultsText}>{historyOperationsMissionId === item.id ? "Hide Operations" : "View Operations"}</Text></TouchableOpacity>
-              {historyOperationsMissionId === item.id && historyOperations && <MissionOperationsDashboard dashboard={historyOperations} />}
+              {item.mission_type !== "connection" && <>
+                <TouchableOpacity style={styles.historyResultsButton} onPress={() => void toggleHistoryOperations(item.id)}><Text style={styles.historyResultsText}>{historyOperationsMissionId === item.id ? "Hide Operations" : "View Operations"}</Text></TouchableOpacity>
+                {historyOperationsMissionId === item.id && historyOperations && <MissionOperationsDashboard dashboard={historyOperations} />}
+              </>}
               <TouchableOpacity style={styles.historyResultsButton} onPress={() => void toggleHistoryResults(item.id)}><Text style={styles.historyResultsText}>{historyResultsMissionId === item.id ? "Hide" : "View Completed"}</Text></TouchableOpacity>
               {historyResultsMissionId === item.id && <View style={styles.completedList}>
                 {(historyResults?.participants ?? []).length === 0 ? <Text style={styles.empty}>No completed participants.</Text> : historyResults?.participants.map((person) => <View key={person.identity_id} style={styles.completedPerson}><Text style={styles.completedName}>{person.display_name}</Text><Text style={styles.completedAt}>{person.assignment_key ? `${person.assignment_key} | ` : ""}{new Date(person.completed_at).toLocaleString()}</Text></View>)}

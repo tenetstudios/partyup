@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { router } from "expo-router";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import QRCode from "react-native-qrcode-svg";
 import { Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
@@ -11,9 +12,11 @@ import {
   getActiveRoomMission,
   getMissionTimeRemaining,
   getMyAnimalPackState,
+  getMyConnectionMissionState,
   joinAnimalPackMission,
   redeemMissionEncounterToken,
   type AnimalPackState,
+  type ConnectionMissionState,
   type EncounterResultStatus,
   type MissionEncounterToken,
   type RoomMission,
@@ -38,6 +41,7 @@ export default function RoomMissionCard({ roomId }: { roomId: string }) {
   const [now, setNow] = useState(0);
   const [guestToken, setGuestToken] = useState<string | null>(null);
   const [animalState, setAnimalState] = useState<AnimalPackState | null>(null);
+  const [connectionState, setConnectionState] = useState<ConnectionMissionState | null>(null);
   const [mode, setMode] = useState<"details" | "animal" | "qr" | "scan">("details");
   const [encounterToken, setEncounterToken] = useState<MissionEncounterToken | null>(null);
   const [manualCode, setManualCode] = useState("");
@@ -48,12 +52,22 @@ export default function RoomMissionCard({ roomId }: { roomId: string }) {
   const missionRef = useRef<RoomMission | null>(null);
   const guestTokenRef = useRef<string | null>(null);
 
-  missionRef.current = mission;
-  guestTokenRef.current = guestToken;
+  useEffect(() => {
+    missionRef.current = mission;
+  }, [mission]);
+
+  useEffect(() => {
+    guestTokenRef.current = guestToken;
+  }, [guestToken]);
 
   const loadMission = useCallback(async () => {
     const next = await getActiveRoomMission(supabase, roomId);
     setMission(next);
+    if (next?.mission_type === "connection") {
+      setConnectionState(await getMyConnectionMissionState(supabase, next.id));
+    } else {
+      setConnectionState(null);
+    }
     if (!next) { setExpanded(false); setAnimalState(null); }
   }, [roomId]);
 
@@ -144,6 +158,7 @@ export default function RoomMissionCard({ roomId }: { roomId: string }) {
   if (!mission) return null;
   const remaining = now ? getMissionTimeRemaining(mission.ends_at, now) : null;
   const isAnimalPack = mission.mission_type === "animal_pack";
+  const isConnection = mission.mission_type === "connection";
   const plural = animalState ? (animalDetails[animalState.assignment_key]?.plural ?? "pack members") : "pack members";
   const tokenRefreshSeconds = encounterToken && now
     ? Math.max(0, Math.ceil((Date.parse(encounterToken.expires_at) - now - 5_000) / 1000))
@@ -195,7 +210,7 @@ export default function RoomMissionCard({ roomId }: { roomId: string }) {
       <View style={styles.headerRow}>
         <View style={styles.textBlock}>
           <View style={styles.metaRow}>
-            <Text style={styles.badge}>{isAnimalPack ? "FIND YOUR PACK" : "NEW MISSION"}</Text>
+            <Text style={styles.badge}>{isAnimalPack ? "FIND YOUR PACK" : isConnection ? "MEET NEW PEOPLE" : "NEW MISSION"}</Text>
             {remaining && <Text style={styles.timer}>{remaining.expired ? "Ending..." : `${remaining.label} left`}</Text>}
           </View>
           <Text style={styles.title} numberOfLines={expanded ? undefined : 2}>{mission.title}</Text>
@@ -225,6 +240,36 @@ export default function RoomMissionCard({ roomId }: { roomId: string }) {
               {feedback && <Text style={[styles.feedback, feedback.includes("✓") && styles.success]}>{feedback}</Text>}
             </View>
           ) : <Text style={styles.description}>Joining Find Your Pack…</Text> : (
+            isConnection ? (
+              <View style={styles.connectionContent}>
+                {mission.description ? <Text style={styles.description}>{mission.description}</Text> : null}
+                {connectionState ? (
+                  <>
+                    <Text style={styles.connectionProgress}>
+                      {Math.min(connectionState.progress, connectionState.target_connections)} / {connectionState.target_connections}
+                    </Text>
+                    <Text style={styles.connectionProgressLabel}>
+                      {connectionState.target_connections === 1 ? "new person met" : "new people met"}
+                    </Text>
+                    {connectionState.completed ? (
+                      <View style={styles.completePanel}>
+                        <Text style={styles.completeTitle}>MISSION COMPLETE</Text>
+                        <Text style={styles.completeCopy}>You met {connectionState.target_connections} new {connectionState.target_connections === 1 ? "person" : "people"} on PartyUp.</Text>
+                      </View>
+                    ) : (
+                      <TouchableOpacity
+                        style={styles.primaryButton}
+                        onPress={() => router.push({ pathname: "/connect", params: { roomId } })}
+                        disabled={Boolean(remaining?.expired)}
+                      >
+                        <Text style={styles.primaryText}>Open PartyUp Connect</Text>
+                      </TouchableOpacity>
+                    )}
+                  </>
+                ) : <Text style={styles.description}>Loading verified connection progress...</Text>}
+                {mission.can_manage && <Text style={styles.count}>{mission.completion_count} completed</Text>}
+              </View>
+            ) : (
             <>
               {mission.description ? <Text style={styles.description}>{mission.description}</Text> : null}
               <TouchableOpacity style={[styles.genericCompleteButton, mission.viewer_completed && styles.completedButton]} onPress={() => void markComplete()} disabled={busy || mission.viewer_completed || Boolean(remaining?.expired)}>
@@ -232,6 +277,7 @@ export default function RoomMissionCard({ roomId }: { roomId: string }) {
               </TouchableOpacity>
               {mission.can_manage && <Text style={styles.count}>{mission.completion_count} completed</Text>}
             </>
+            )
           )}
           {error && <Text style={styles.error}>{error}</Text>}
         </View>
@@ -314,6 +360,9 @@ const styles = StyleSheet.create({
   completeTitle: { color: "#6EE7B7", fontSize: 20, fontWeight: "900", textAlign: "center" },
   completeCopy: { color: "#D1FAE5", fontSize: 13, marginTop: 4, textAlign: "center" },
   description: { color: "#D4D4D8", fontSize: 14, lineHeight: 21 },
+  connectionContent: { alignItems: "center" },
+  connectionProgress: { color: "#F9A8D4", fontSize: 34, fontWeight: "900", marginTop: 14 },
+  connectionProgressLabel: { color: "#E9D5FF", fontSize: 13, fontWeight: "900", marginBottom: 15, marginTop: 2 },
   genericCompleteButton: { alignItems: "center", backgroundColor: "#DB2777", borderRadius: 8, justifyContent: "center", marginTop: 14, minHeight: 48 },
   completedButton: { backgroundColor: "#047857" },
   count: { color: "#D4D4D8", fontSize: 13, fontWeight: "800", marginTop: 10, textAlign: "center" },

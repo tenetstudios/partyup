@@ -7,7 +7,12 @@ export type RoomMission = {
   title: string;
   description: string | null;
   mission_type: "generic" | "animal_pack" | "connection";
-  config: { animals?: string[]; target_encounters?: number };
+  config: {
+    animals?: string[];
+    target_encounters?: number;
+    target_connections?: number;
+    completion_event?: "partyup_connection_created";
+  };
   status: "draft" | "active" | "ended";
   starts_at: string | null;
   ends_at: string | null;
@@ -33,6 +38,14 @@ export type AnimalPackState = {
   assignment_key: string;
   progress: number;
   target_encounters: number;
+  completed: boolean;
+  completed_at: string | null;
+  mission_active: boolean;
+};
+
+export type ConnectionMissionState = {
+  progress: number;
+  target_connections: number;
   completed: boolean;
   completed_at: string | null;
   mission_active: boolean;
@@ -204,6 +217,40 @@ export async function publishAnimalPackMission(supabase: SupabaseClient, roomId:
   const { data, error } = await supabase.rpc("publish_animal_pack_mission", { p_room_id: roomId, p_animal_count: input.animalCount, p_target_encounters: input.targetEncounters, p_duration_minutes: input.durationMinutes });
   if (error) throw new Error(error.message);
   return firstRow<RoomMission>(data);
+}
+
+export async function publishConnectionMission(
+  supabase: SupabaseClient,
+  roomId: string,
+  input: { targetConnections: number; durationMinutes: number },
+) {
+  if (!Number.isInteger(input.targetConnections) || input.targetConnections < 1 || input.targetConnections > 20) {
+    throw new Error("Connection target must be between 1 and 20 people.");
+  }
+  if (!Number.isInteger(input.durationMinutes) || input.durationMinutes < 1 || input.durationMinutes > 1440) {
+    throw new Error("Connection Mission duration must be between 1 and 1440 minutes.");
+  }
+
+  const { data, error } = await supabase.rpc("publish_connection_mission", {
+    p_room_id: roomId,
+    p_target_connections: input.targetConnections,
+    p_duration_minutes: input.durationMinutes,
+  });
+  if (error) throw new Error(error.message);
+  return firstRow<RoomMission>(data);
+}
+
+export async function getMyConnectionMissionState(supabase: SupabaseClient, missionId: string) {
+  const { data, error } = await supabase.rpc("get_my_connection_mission_state", {
+    p_mission_id: missionId,
+  });
+  if (error) throw new Error(error.message);
+  const state = data as ConnectionMissionState;
+  return {
+    ...state,
+    progress: Number(state.progress ?? 0),
+    target_connections: Number(state.target_connections ?? 1),
+  };
 }
 
 export async function joinAnimalPackMission(supabase: SupabaseClient, missionId: string, guestToken?: string | null) {
