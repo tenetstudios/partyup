@@ -1,5 +1,6 @@
 import { router, useLocalSearchParams } from "expo-router";
 import * as Linking from "expo-linking";
+import { Image } from "expo-image";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import {
   Alert,
@@ -20,6 +21,13 @@ import RoomIdleLoopManager from "../../../components/RoomIdleLoopManager";
 
 type Tab = "queue" | "inside" | "streams" | "bouncers" | "settings";
 type SettingsGroupKey = "experience" | "engagement" | "moderation" | "closeout";
+
+const posterSource = require("../../../../assets/images/partyup-room-poster.png");
+const posterWidthPx = 1054;
+const posterHeightPx = 1492;
+const posterQrX = 377;
+const posterQrY = 821;
+const posterQrSizePx = 300;
 
 type Room = {
   id: string;
@@ -133,6 +141,9 @@ function RoomDescriptionEditor({ roomId, embedded = false }: { roomId: string; e
 
 function RoomEntryQrCard({ roomId, roomTitle, embedded = false }: { roomId: string; roomTitle: string; embedded?: boolean }) {
   const entryUrl = Linking.createURL(`/room/${roomId}`);
+  const [posterWidth, setPosterWidth] = useState(0);
+  const posterScale = posterWidth / posterWidthPx;
+  const qrSize = Math.round(posterQrSizePx * posterScale);
 
   async function shareEntry() {
     try {
@@ -145,8 +156,39 @@ function RoomEntryQrCard({ roomId, roomTitle, embedded = false }: { roomId: stri
   return (
     <View style={[styles.setupCard, embedded && styles.embeddedSection]}>
       <Text style={styles.name}>Room QR code</Text>
-      <Text style={styles.meta}>Guests with PartyUp can scan this code to open the room.</Text>
-      <View style={styles.qrBox}><QRCode value={entryUrl} size={190} /></View>
+      <Text style={styles.meta}>Guests can scan the event poster to open this room.</Text>
+      <View
+        onLayout={(event) => setPosterWidth(event.nativeEvent.layout.width)}
+        style={styles.posterPreview}
+      >
+        <Image
+          accessibilityLabel="PartyUp event poster"
+          contentFit="contain"
+          source={posterSource}
+          style={StyleSheet.absoluteFillObject}
+        />
+        {qrSize > 0 ? (
+          <View
+            pointerEvents="none"
+            style={[
+              styles.posterQr,
+              {
+                height: qrSize,
+                left: posterQrX * posterScale,
+                top: posterQrY * posterScale,
+                width: qrSize,
+              },
+            ]}
+          >
+            <QRCode
+              backgroundColor="#FFFFFF"
+              color="#090611"
+              size={qrSize}
+              value={entryUrl}
+            />
+          </View>
+        ) : null}
+      </View>
       <TouchableOpacity style={styles.purplePillButton} onPress={() => void shareEntry()}>
         <Text style={styles.buttonText}>Share Room Link</Text>
       </TouchableOpacity>
@@ -1422,13 +1464,22 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     marginTop: 10,
   },
-  qrBox: {
-    alignItems: "center",
+  posterPreview: {
+    aspectRatio: posterWidthPx / posterHeightPx,
     alignSelf: "center",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 18,
+    backgroundColor: "#050509",
+    borderColor: "rgba(255,62,154,0.35)",
+    borderRadius: 16,
+    borderWidth: 1,
     marginTop: 16,
-    padding: 16,
+    maxWidth: 420,
+    overflow: "hidden",
+    position: "relative",
+    width: "100%",
+  },
+  posterQr: {
+    backgroundColor: "#FFFFFF",
+    position: "absolute",
   },
   closeoutEyebrow: {
     color: "#C4B5FD",
