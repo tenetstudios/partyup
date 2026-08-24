@@ -483,7 +483,8 @@ useEffect(() => {
       .from("notifications")
       .select("id", { count: "exact", head: true })
       .eq("user_id", userId)
-      .eq("is_read", false);
+      .eq("is_read", false)
+      .is("dismissed_at", null);
 
     if (error) {
       console.log("Unread notification count error:", error.message);
