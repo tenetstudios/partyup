@@ -48,6 +48,7 @@
       [
         "expo-notifications",
         {
+          "icon": "./assets/images/notification-icon.png",
           "color": "#C026D3",
           "defaultChannel": "partyup"
         }
