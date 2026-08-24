@@ -270,8 +270,9 @@ function isUserOnline(userId: string, presenceUsers: PresenceUser[]): boolean {
 }
 
 export default function RoomScreen() {
-  const { id } = useLocalSearchParams();
+  const { id, missionId } = useLocalSearchParams();
   const roomId = String(id);
+  const requestedMissionId = Array.isArray(missionId) ? missionId[0] : missionId;
 
   const [room, setRoom] = useState<Room | null>(null);
   const [queue, setQueue] = useState<QueueUser[]>([]);
@@ -2055,7 +2056,7 @@ const requestedStreamers = [
           )}
 
           <WildRoomCard roomId={room.id} />
-          <RoomMissionCard roomId={room.id} />
+          <RoomMissionCard roomId={room.id} requestedMissionId={requestedMissionId} />
           <NotificationOptInCard />
 
           {!isDesktop && mobileRoomOverview}

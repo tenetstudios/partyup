@@ -33,7 +33,7 @@ const messages: Record<EncounterResultStatus, string> = {
   invalid: "That Mission code isn’t valid.",
 };
 
-export default function RoomMissionCard({ roomId }: { roomId: string }) {
+export default function RoomMissionCard({ roomId, requestedMissionId }: { roomId: string; requestedMissionId?: string | null }) {
   const [mission, setMission] = useState<RoomMission | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -63,12 +63,14 @@ export default function RoomMissionCard({ roomId }: { roomId: string }) {
   const loadMission = useCallback(async () => {
     const next = await getActiveRoomMission(supabase, roomId);
     setMission(next);
+    setError(null);
     if (next?.mission_type === "connection") {
       setConnectionState(await getMyConnectionMissionState(supabase, next.id));
     } else {
       setConnectionState(null);
     }
     if (!next) { setExpanded(false); setAnimalState(null); }
+    return next;
   }, [roomId]);
 
   const refreshState = useCallback(async (missionId: string, token: string | null) => {
@@ -122,6 +124,28 @@ export default function RoomMissionCard({ roomId }: { roomId: string }) {
       if (channel) void supabase.removeChannel(channel);
     };
   }, [loadMission, refreshState, roomId]);
+
+  useEffect(() => {
+    if (!requestedMissionId) return;
+    let active = true;
+    const retryDelays = [0, 350, 1000, 2000];
+
+    const refreshRequestedMission = async () => {
+      for (const delay of retryDelays) {
+        if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+        if (!active) return;
+        try {
+          const next = await loadMission();
+          if (next?.id === requestedMissionId) return;
+        } catch (reason) {
+          if (active) setError(reason instanceof Error ? reason.message : "Could not load the Mission.");
+        }
+      }
+    };
+
+    void refreshRequestedMission();
+    return () => { active = false; };
+  }, [loadMission, requestedMissionId]);
 
   useEffect(() => {
     if (!mission?.ends_at) return;
