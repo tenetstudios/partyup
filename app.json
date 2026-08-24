@@ -12,6 +12,7 @@
       "bundleIdentifier": "io.partyup.app"
     },
     "android": {
+      "googleServicesFile": "./google-services.json",
       "permissions": [
         "CAMERA",
         "RECORD_AUDIO",

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "833488004210",
+    "project_id": "io-partyup-app",
+    "storage_bucket": "io-partyup-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:833488004210:android:1d1a7b24c6ba38d8ce0eeb",
+        "android_client_info": {
+          "package_name": "io.partyup.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCt59HCxarcEOpUnH0vx5qqoeU4x4i-3XU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
