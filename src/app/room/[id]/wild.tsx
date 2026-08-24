@@ -1,12 +1,18 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import * as ImagePicker from "expo-image-picker";
 import { useCallback, useEffect, useRef, useState } from "react";
 import QRCode from "react-native-qrcode-svg";
-import { Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../../../../lib/supabase";
 import { completeWildMission, createWildEncounterToken, enterWildGame, getWildEncounterState, getWildRoomState, redeemWildEncounterToken, wildFactionByKey, type WildEncounterState, type WildEncounterStatus, type WildRoomState } from "../../../../lib/wild";
-import { createGuestSession, readStoredGuestSession } from "../../../lib/matchmaking";
+import { claimMemoryMissionCompletion, verifyMemoryMissionCompletion } from "../../../../lib/roomMissions";
+import { createGuestSession, ensurePartyUpIdentity, readStoredGuestSession } from "../../../lib/matchmaking";
+
+const imageSizeLimit = 12 * 1024 * 1024;
+const videoSizeLimit = 50 * 1024 * 1024;
+const videoDurationLimitMs = 60 * 1000;
 
 const encounterMessages: Record<WildEncounterStatus, string> = {
   valid: "Verified encounter ✓", self_scan: "You can't scan yourself.", wrong_mission: "This code belongs to another Mission.", wrong_game: "This player isn't in this Wild game.", wrong_room: "This code belongs to another room.", wrong_faction: "This objective belongs to another faction.", wrong_animal: "That player is in another Animal Pack.", same_faction_required: "Find someone from your own faction.", different_faction_required: "Find someone from another faction.", specific_faction_required: "That player isn't in the required faction.", duplicate: "You've already verified with this player for this Mission.", expired: "That code expired. Ask them to refresh it.", mission_ended: "This Mission is no longer active.", game_ended: "The Wild has ended.", invalid: "That temporary Mission code isn't valid.",
@@ -17,6 +23,7 @@ export default function WildScreen() {
   const roomId = String(id ?? "");
   const [state, setState] = useState<WildRoomState | null>(null);
   const [busy, setBusy] = useState(false);
+  const [memoryUploading, setMemoryUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [capture, setCapture] = useState<string | null>(null);
   const [encounterState, setEncounterState] = useState<WildEncounterState | null>(null);
@@ -134,9 +141,85 @@ export default function WildScreen() {
   async function complete() {
     if (!state?.mission) return;
     setBusy(true); setError(null);
-    try { const token = await ensureGuestToken(); await completeWildMission(supabase, state.mission.id, token); await load(token); }
+    try {
+      if (state.mission.config.verification_type === "memory_upload") {
+        await claimMemoryMissionCompletion(supabase, state.mission.id);
+        await load();
+      } else {
+        const token = await ensureGuestToken();
+        await completeWildMission(supabase, state.mission.id, token);
+        await load(token);
+      }
+    }
     catch (reason) { setError(reason instanceof Error ? reason.message : "Could not complete this Wild Mission."); }
     finally { setBusy(false); }
+  }
+
+  async function uploadMissionMemory() {
+    if (!state?.mission || memoryUploading) return;
+    setMemoryUploading(true); setError(null);
+    let uploadedPath: string | null = null;
+    let memoryCreated = false;
+    try {
+      const { data } = await supabase.auth.getUser();
+      if (!data.user) throw new Error("Sign in to upload and verify a Mission Memory.");
+
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permissionResult.granted) throw new Error("Allow photo library access to upload a Mission Memory.");
+      const requiredType = state.mission.config.required_media_type ?? "any";
+      const pickerResult = await ImagePicker.launchImageLibraryAsync({
+        allowsEditing: false,
+        mediaTypes: requiredType === "image" ? ["images"] : requiredType === "video" ? ["videos"] : ["images", "videos"],
+        quality: 0.85,
+        videoMaxDuration: 60,
+      });
+      if (pickerResult.canceled || !pickerResult.assets.length) return;
+
+      const asset = pickerResult.assets[0];
+      const mediaType = asset.type === "image" ? "image" : asset.type === "video" ? "video" : null;
+      if (!mediaType) throw new Error("Choose a photo or video.");
+      if (requiredType !== "any" && mediaType !== requiredType) {
+        throw new Error(requiredType === "image" ? "This Mission requires a photo." : "This Mission requires a video.");
+      }
+      const sizeLimit = mediaType === "image" ? imageSizeLimit : videoSizeLimit;
+      if (asset.fileSize && asset.fileSize > sizeLimit) {
+        throw new Error(mediaType === "image" ? "Photos must be 12 MB or smaller." : "Videos must be 50 MB or smaller.");
+      }
+      if (mediaType === "video" && asset.duration && asset.duration > videoDurationLimitMs) {
+        throw new Error("Memories supports short clips up to 60 seconds.");
+      }
+
+      const identity = await ensurePartyUpIdentity();
+      const fallbackName = mediaType === "image" ? "memory.jpg" : "memory.mp4";
+      const cleanName = (asset.fileName || fallbackName).replace(/[^a-zA-Z0-9._-]/g, "-");
+      uploadedPath = `${roomId}/${identity.id}/${Date.now()}-${cleanName}`;
+      const response = await fetch(asset.uri);
+      if (!response.ok) throw new Error("Could not read the selected media file.");
+      const { error: uploadError } = await supabase.storage.from("room-memories").upload(uploadedPath, await response.arrayBuffer(), {
+        contentType: asset.mimeType || (mediaType === "image" ? "image/jpeg" : "video/mp4"),
+        upsert: false,
+      });
+      if (uploadError) throw new Error(uploadError.message);
+
+      const { data: memory, error: insertError } = await supabase.from("room_memories").insert({
+        room_id: roomId,
+        uploader_identity_id: identity.id,
+        media_type: mediaType,
+        media_path: uploadedPath,
+      }).select("id").single<{ id: string }>();
+      if (insertError) throw new Error(insertError.message);
+      memoryCreated = true;
+
+      await verifyMemoryMissionCompletion(supabase, state.mission.id, memory.id);
+      Alert.alert("Mission complete", "Your Memory was verified and the influence reward was applied.");
+      await load();
+    } catch (reason) {
+      if (uploadedPath && !memoryCreated) await supabase.storage.from("room-memories").remove([uploadedPath]);
+      const detail = reason instanceof Error ? reason.message : "Could not upload this Memory.";
+      setError(memoryCreated ? `Memory uploaded, but Mission verification failed: ${detail}` : detail);
+    } finally {
+      setMemoryUploading(false);
+    }
   }
 
   async function openScanner() {
@@ -200,7 +283,10 @@ export default function WildScreen() {
           <Text style={styles.reward}>+{state.mission.config.influence_reward} influence · {state.territories.find((item) => item.key === state.mission?.config.territory_key)?.display_name}</Text>
           {state.mission.config.verification_type === "memory_upload" ? <View style={styles.encounterBlock}>
             <Text style={styles.requirement}>Requirement: {state.mission.config.required_media_type === "image" ? "Upload a new photo." : state.mission.config.required_media_type === "video" ? "Upload a new video." : "Upload a new photo or video."}</Text>
-            {!state.mission.eligible ? <Text style={styles.warning}>This objective belongs to another faction.</Text> : state.mission.viewer_completed ? <Text style={styles.success}>MEMORY VERIFIED ✓ Influence awarded.</Text> : <TouchableOpacity style={styles.primary} onPress={() => router.push({ pathname: "/room/[id]/memories", params: { id: roomId, missionId: state.mission!.id } })}><Text style={styles.primaryText}>Add Memory</Text></TouchableOpacity>}
+            {!state.mission.eligible ? <Text style={styles.warning}>This objective belongs to another faction.</Text> : state.mission.viewer_completed ? <Text style={styles.success}>MEMORY VERIFIED ✓ Influence awarded.</Text> : <View style={styles.encounterActions}>
+              <TouchableOpacity style={styles.primary} disabled={memoryUploading || busy} onPress={() => void uploadMissionMemory()}><Text style={styles.primaryText}>{memoryUploading ? "Uploading…" : state.mission.config.required_media_type === "image" ? "Upload Photo" : state.mission.config.required_media_type === "video" ? "Upload Video" : "Upload Memory"}</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.secondaryButton} disabled={busy || memoryUploading} onPress={() => void complete()}><Text style={styles.primaryText}>{busy ? "Checking…" : "Complete Mission"}</Text></TouchableOpacity>
+            </View>}
           </View> : state.mission.config.verification_type === "encounter" ? <View style={styles.encounterBlock}>
             <Text style={styles.requirement}>Requirement: {encounterRequirement}</Text>
             {encounterState?.eligible ? <Text style={styles.encounterProgress}>{Math.min(encounterState.progress, encounterState.required_encounters)} / {encounterState.required_encounters}</Text> : <Text style={styles.warning}>You can help an eligible player by showing your QR.</Text>}

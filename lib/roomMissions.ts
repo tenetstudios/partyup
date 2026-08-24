@@ -233,6 +233,12 @@ export async function verifyMemoryMissionCompletion(supabase: SupabaseClient, mi
   return data as { status: "verified"; mission_id: string; memory_id: string; completed: boolean };
 }
 
+export async function claimMemoryMissionCompletion(supabase: SupabaseClient, missionId: string) {
+  const { data, error } = await supabase.rpc("claim_memory_mission_completion", { p_mission_id: missionId });
+  if (error) throw new Error(error.message);
+  return data as { status: "verified"; mission_id: string; memory_id: string; completed: boolean };
+}
+
 export async function publishAnimalPackMission(supabase: SupabaseClient, roomId: string, input: { animalCount: number; targetEncounters: number; durationMinutes: number }) {
   const { data, error } = await supabase.rpc("publish_animal_pack_mission", { p_room_id: roomId, p_animal_count: input.animalCount, p_target_encounters: input.targetEncounters, p_duration_minutes: input.durationMinutes });
   if (error) throw new Error(error.message);
