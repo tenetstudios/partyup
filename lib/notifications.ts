@@ -26,6 +26,7 @@ export interface Notification {
   recap_room_id: string | null;
   data?: Record<string, unknown> | null;
   is_read: boolean;
+  dismissed_at?: string | null;
   created_at: string;
 }
 
@@ -77,4 +78,13 @@ export async function markAllNotificationsAsRead(userId: string): Promise<void> 
   if (error) {
     console.error("Failed to mark all notifications as read:", error.message);
   }
+}
+
+export async function dismissNotification(notificationId: string): Promise<void> {
+  const { data, error } = await supabase.rpc("dismiss_my_notification", {
+    p_notification_id: notificationId,
+  });
+
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error("Notification not found.");
 }

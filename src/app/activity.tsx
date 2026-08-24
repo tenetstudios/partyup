@@ -1,8 +1,9 @@
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import {
   type Notification,
+  dismissNotification,
   markNotificationAsRead,
 } from "../../lib/notifications";
 import { resolveMyEventRecaps } from "../../lib/recaps";
@@ -79,6 +80,11 @@ export default function ActivityScreen() {
             if (payload.eventType === "INSERT") {
               const newNotification = payload.new as Notification;
               setNotifications((prev) => [newNotification, ...prev]);
+            } else if (payload.eventType === "UPDATE") {
+              const updatedNotification = payload.new as Notification;
+              setNotifications((prev) => updatedNotification.dismissed_at
+                ? prev.filter((item) => item.id !== updatedNotification.id)
+                : prev.map((item) => item.id === updatedNotification.id ? updatedNotification : item));
             }
           }
         )
@@ -110,6 +116,7 @@ export default function ActivityScreen() {
       .from("notifications")
       .select("*")
       .eq("user_id", user.id)
+      .is("dismissed_at", null)
       .order("created_at", { ascending: false })
       .limit(50);
 
@@ -161,6 +168,17 @@ export default function ActivityScreen() {
       router.push(`/room/${notification.room_id}`);
     } else if (notification.type === "follow" && notification.actor_id) {
       router.push(`/user/${notification.actor_id}`);
+    }
+  }
+
+  async function handleNotificationDismiss(notification: Notification) {
+    setNotifications((current) => current.filter((item) => item.id !== notification.id));
+    try {
+      await dismissNotification(notification.id);
+    } catch (error) {
+      setNotifications((current) => [notification, ...current]
+        .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at)));
+      Alert.alert("Could not dismiss notification", error instanceof Error ? error.message : "Please try again.");
     }
   }
 
@@ -467,9 +485,23 @@ export default function ActivityScreen() {
                 </Text>
               </View>
 
-              <Text style={styles.time}>
-                {formatNotificationDate(notification.created_at)}
-              </Text>
+              <View style={styles.notificationMeta}>
+                <Text style={styles.time}>
+                  {formatNotificationDate(notification.created_at)}
+                </Text>
+                <TouchableOpacity
+                  accessibilityLabel="Dismiss notification"
+                  accessibilityRole="button"
+                  hitSlop={10}
+                  onPress={(event) => {
+                    event.stopPropagation();
+                    void handleNotificationDismiss(notification);
+                  }}
+                  style={styles.dismissButton}
+                >
+                  <Text style={styles.dismissButtonText}>×</Text>
+                </TouchableOpacity>
+              </View>
             </View>
 
             <Text style={styles.cardTitle}>{notification.title}</Text>
@@ -585,6 +617,26 @@ const styles = StyleSheet.create({
     color: "#7C7A86",
     fontSize: 12,
     fontWeight: "700",
+  },
+  notificationMeta: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+  },
+  dismissButton: {
+    alignItems: "center",
+    borderColor: "rgba(255,255,255,0.14)",
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 30,
+    justifyContent: "center",
+    width: 30,
+  },
+  dismissButtonText: {
+    color: "#C4B5FD",
+    fontSize: 21,
+    fontWeight: "700",
+    lineHeight: 23,
   },
   cardTitle: {
     color: "#FFFFFF",
