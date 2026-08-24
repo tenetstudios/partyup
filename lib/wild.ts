@@ -20,17 +20,20 @@ export type WildMission = {
     faction_key: string;
     territory_key: string;
     influence_reward: number;
-    verification_type?: "none" | "encounter" | "memory_upload";
+    verification_type?: "none" | "encounter" | "memory_upload" | "match_faction";
     encounter_relationship?: "same_faction" | "different_faction" | "specific_faction" | null;
     required_encounters?: number;
     target_faction?: string | null;
     required_media_type?: "any" | "image" | "video";
     required_memories?: number;
+    match_relationship?: "opposing_faction";
+    required_matches?: number;
   };
   viewer_completed: boolean;
   eligible: boolean;
 };
 export type WildEncounterState = { progress: number; required_encounters: number; completed: boolean; eligible: boolean; verification_type: "encounter"; encounter_relationship: "same_faction" | "different_faction" | "specific_faction"; target_faction: string | null; verified_encounter_count: number; mission_completion_count: number; mission_active: boolean };
+export type WildMatchState = { progress: number; required_matches: number; completed: boolean; eligible: boolean; verification_type: "match_faction"; match_relationship: "opposing_faction"; verified_match_count: number; mission_completion_count: number; mission_active: boolean };
 export type WildEncounterStatus = "valid" | "self_scan" | "wrong_mission" | "wrong_game" | "wrong_room" | "wrong_faction" | "wrong_animal" | "same_faction_required" | "different_faction_required" | "specific_faction_required" | "duplicate" | "expired" | "mission_ended" | "game_ended" | "invalid";
 export type WildWinnerScore = {
   faction_key: string;
@@ -94,10 +97,11 @@ export async function enterWildGame(supabase: SupabaseClient, gameId: string, gu
 
 export async function publishWildMission(
   supabase: SupabaseClient,
-  input: { gameId: string; factionKey: string; territoryKey: string; title: string; description?: string | null; influenceReward: number; durationMinutes: number; verificationType?: "none" | "encounter" | "memory_upload"; encounterRelationship?: "same_faction" | "different_faction" | "specific_faction" | null; requiredEncounters?: number; targetFaction?: string | null; requiredMediaType?: "any" | "image" | "video" },
+  input: { gameId: string; factionKey: string; territoryKey: string; title: string; description?: string | null; influenceReward: number; durationMinutes: number; verificationType?: "none" | "encounter" | "memory_upload" | "match_faction"; encounterRelationship?: "same_faction" | "different_faction" | "specific_faction" | null; requiredEncounters?: number; targetFaction?: string | null; requiredMediaType?: "any" | "image" | "video"; requiredMatches?: number },
 ) {
   const memoryVerification = input.verificationType === "memory_upload";
-  const { data, error } = await supabase.rpc(memoryVerification ? "publish_wild_memory_mission" : "publish_wild_faction_mission", {
+  const matchVerification = input.verificationType === "match_faction";
+  const { data, error } = await supabase.rpc(memoryVerification ? "publish_wild_memory_mission" : matchVerification ? "publish_wild_match_mission" : "publish_wild_faction_mission", {
     p_game_id: input.gameId,
     p_faction_key: input.factionKey,
     p_territory_key: input.territoryKey,
@@ -105,7 +109,7 @@ export async function publishWildMission(
     p_description: input.description ?? null,
     p_influence_reward: input.influenceReward,
     p_duration_minutes: input.durationMinutes,
-    ...(memoryVerification ? { p_required_media_type: input.requiredMediaType ?? "any" } : {
+    ...(memoryVerification ? { p_required_media_type: input.requiredMediaType ?? "any" } : matchVerification ? { p_required_matches: input.requiredMatches ?? 2 } : {
       p_verification_type: input.verificationType ?? "none",
       p_encounter_relationship: input.encounterRelationship ?? null,
       p_required_encounters: input.requiredEncounters ?? 1,
@@ -121,6 +125,13 @@ export async function getWildEncounterState(supabase: SupabaseClient, missionId:
   if (error) throw new Error(error.message);
   const state = data as WildEncounterState;
   return { ...state, progress: Number(state.progress ?? 0), required_encounters: Number(state.required_encounters ?? 1), verified_encounter_count: Number(state.verified_encounter_count ?? 0), mission_completion_count: Number(state.mission_completion_count ?? 0) };
+}
+
+export async function getWildMatchState(supabase: SupabaseClient, missionId: string, guestToken?: string | null) {
+  const { data, error } = await supabase.rpc("get_my_wild_match_state", { p_mission_id: missionId, p_guest_token: guestToken ?? null });
+  if (error) throw new Error(error.message);
+  const state = data as WildMatchState;
+  return { ...state, progress: Number(state.progress ?? 0), required_matches: Number(state.required_matches ?? 1), verified_match_count: Number(state.verified_match_count ?? 0), mission_completion_count: Number(state.mission_completion_count ?? 0) };
 }
 
 export async function createWildEncounterToken(supabase: SupabaseClient, missionId: string, guestToken?: string | null) {

@@ -6,13 +6,20 @@ import QRCode from "react-native-qrcode-svg";
 import { Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../../../../lib/supabase";
-import { completeWildMission, createWildEncounterToken, enterWildGame, getWildEncounterState, getWildRoomState, redeemWildEncounterToken, wildFactionByKey, type WildEncounterState, type WildEncounterStatus, type WildRoomState } from "../../../../lib/wild";
+import { completeWildMission, createWildEncounterToken, enterWildGame, getWildEncounterState, getWildMatchState, getWildRoomState, redeemWildEncounterToken, wildFactionByKey, type WildEncounterState, type WildEncounterStatus, type WildMatchState, type WildRoomState } from "../../../../lib/wild";
 import { claimMemoryMissionCompletion, verifyMemoryMissionCompletion } from "../../../../lib/roomMissions";
-import { createGuestSession, ensurePartyUpIdentity, readStoredGuestSession } from "../../../lib/matchmaking";
+import { createGuestSession, ensurePartyUpIdentity, getOrCreateEventMatchPool, readStoredGuestSession } from "../../../lib/matchmaking";
 
 const imageSizeLimit = 12 * 1024 * 1024;
 const videoSizeLimit = 50 * 1024 * 1024;
 const videoDurationLimitMs = 60 * 1000;
+
+function formatCountdown(endsAt: string | null, now: number) {
+  if (!endsAt) return "No time limit";
+  const seconds = Math.ceil((Date.parse(endsAt) - now) / 1000);
+  if (seconds <= 0) return "MISSION EXPIRED";
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")} remaining`;
+}
 
 const encounterMessages: Record<WildEncounterStatus, string> = {
   valid: "Verified encounter ✓", self_scan: "You can't scan yourself.", wrong_mission: "This code belongs to another Mission.", wrong_game: "This player isn't in this Wild game.", wrong_room: "This code belongs to another room.", wrong_faction: "This objective belongs to another faction.", wrong_animal: "That player is in another Animal Pack.", same_faction_required: "Find someone from your own faction.", different_faction_required: "Find someone from another faction.", specific_faction_required: "That player isn't in the required faction.", duplicate: "You've already verified with this player for this Mission.", expired: "That code expired. Ask them to refresh it.", mission_ended: "This Mission is no longer active.", game_ended: "The Wild has ended.", invalid: "That temporary Mission code isn't valid.",
@@ -27,6 +34,8 @@ export default function WildScreen() {
   const [error, setError] = useState<string | null>(null);
   const [capture, setCapture] = useState<string | null>(null);
   const [encounterState, setEncounterState] = useState<WildEncounterState | null>(null);
+  const [matchState, setMatchState] = useState<WildMatchState | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const [encounterMode, setEncounterMode] = useState<"details" | "qr" | "scan">("details");
   const [encounterToken, setEncounterToken] = useState<{ qr_payload: string; short_code: string; expires_at: string } | null>(null);
   const [manualCode, setManualCode] = useState("");
@@ -69,6 +78,11 @@ export default function WildScreen() {
       setEncounterState(null);
       setEncounterMode("details");
     }
+    if (next.assignment && next.mission?.config.verification_type === "match_faction") {
+      setMatchState(await getWildMatchState(supabase, next.mission.id, token));
+    } else {
+      setMatchState(null);
+    }
   }, [roomId]);
 
   useEffect(() => {
@@ -95,11 +109,17 @@ export default function WildScreen() {
         .on("postgres_changes", { event: "*", schema: "public", table: "room_missions", filter: `room_id=eq.${roomId}` }, () => void load())
         .on("postgres_changes", { event: "*", schema: "public", table: "mission_completions" }, () => void load())
         .on("postgres_changes", { event: "*", schema: "public", table: "mission_encounters" }, refreshGame)
+        .on("postgres_changes", { event: "*", schema: "public", table: "mission_match_verifications" }, () => void load())
         .subscribe();
     };
     void subscribe();
     return () => { active = false; if (guestRefresh) clearInterval(guestRefresh); if (channel) void supabase.removeChannel(channel); };
   }, [load, roomId]);
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (!capture) return;
@@ -233,6 +253,17 @@ export default function WildScreen() {
     setEncounterMode("scan");
   }
 
+  async function startEventMatch() {
+    setBusy(true); setError(null);
+    try {
+      const pool = await getOrCreateEventMatchPool(roomId);
+      router.push({ pathname: "/match", params: { pool: pool.poolId, roomId } });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not open this event's Match pool.");
+      setBusy(false);
+    }
+  }
+
   function closeEncounterModal() {
     if (scanUnlockTimerRef.current) clearTimeout(scanUnlockTimerRef.current);
     scanUnlockTimerRef.current = null;
@@ -281,7 +312,12 @@ export default function WildScreen() {
           <Text style={styles.title}>{state.mission.title}</Text>
           {state.mission.description && <Text style={styles.muted}>{state.mission.description}</Text>}
           <Text style={styles.reward}>+{state.mission.config.influence_reward} influence · {state.territories.find((item) => item.key === state.mission?.config.territory_key)?.display_name}</Text>
-          {state.mission.config.verification_type === "memory_upload" ? <View style={styles.encounterBlock}>
+          <Text style={styles.countdown}>{formatCountdown(state.mission.ends_at, now)}</Text>
+          {state.mission.config.verification_type === "match_faction" ? <View style={styles.encounterBlock}>
+            <Text style={styles.requirement}>Match with unique players from opposing factions.</Text>
+            {matchState?.eligible ? <Text style={styles.encounterProgress}>{Math.min(matchState.progress, matchState.required_matches)} / {matchState.required_matches}</Text> : <Text style={styles.warning}>This objective belongs to another faction.</Text>}
+            {matchState?.completed ? <Text style={styles.success}>MISSION COMPLETE ✓ Influence awarded.</Text> : matchState?.eligible && <TouchableOpacity style={styles.primary} disabled={busy || !matchState.mission_active} onPress={() => void startEventMatch()}><Text style={styles.primaryText}>{busy ? "Opening Match…" : "Match with people here"}</Text></TouchableOpacity>}
+          </View> : state.mission.config.verification_type === "memory_upload" ? <View style={styles.encounterBlock}>
             <Text style={styles.requirement}>Requirement: {state.mission.config.required_media_type === "image" ? "Upload a new photo." : state.mission.config.required_media_type === "video" ? "Upload a new video." : "Upload a new photo or video."}</Text>
             {!state.mission.eligible ? <Text style={styles.warning}>This objective belongs to another faction.</Text> : state.mission.viewer_completed ? <Text style={styles.success}>MEMORY VERIFIED ✓ Influence awarded.</Text> : <View style={styles.encounterActions}>
               <TouchableOpacity style={styles.primary} disabled={memoryUploading || busy} onPress={() => void uploadMissionMemory()}><Text style={styles.primaryText}>{memoryUploading ? "Uploading…" : state.mission.config.required_media_type === "image" ? "Upload Photo" : state.mission.config.required_media_type === "video" ? "Upload Video" : "Upload Memory"}</Text></TouchableOpacity>
@@ -309,5 +345,5 @@ export default function WildScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { backgroundColor: "#08050D", flex: 1 }, page: { flex: 1 }, content: { padding: 18, paddingBottom: 50 }, back: { color: "#D8B4FE", fontWeight: "900" }, present: { color: "#F0ABFC", fontSize: 11, fontWeight: "900", letterSpacing: 2.5, marginTop: 24 }, hero: { color: "#FFF", fontSize: 42, fontWeight: "900", marginTop: 5 }, panel: { backgroundColor: "rgba(0,0,0,0.36)", borderColor: "rgba(255,255,255,0.1)", borderRadius: 15, borderWidth: 1, marginTop: 18, padding: 17 }, center: { alignItems: "center" }, title: { color: "#FFF", fontSize: 21, fontWeight: "900", marginTop: 8 }, muted: { color: "#A1A1AA", fontSize: 13, lineHeight: 19, marginTop: 5 }, label: { color: "#A1A1AA", fontSize: 11, fontWeight: "900" }, faction: { color: "#FFF", fontSize: 29, fontWeight: "900", marginTop: 6 }, winner: { color: "#FFF", fontSize: 27, fontWeight: "900", marginTop: 12, textAlign: "center" }, score: { color: "#D4D4D8", fontSize: 12, fontWeight: "700", marginTop: 7, textAlign: "center" }, primary: { alignItems: "center", alignSelf: "flex-start", backgroundColor: "#C026D3", borderRadius: 9, justifyContent: "center", marginTop: 14, minHeight: 46, paddingHorizontal: 18 }, primaryWide: { alignItems: "center", backgroundColor: "#C026D3", borderRadius: 9, justifyContent: "center", minHeight: 48, paddingHorizontal: 18 }, primaryText: { color: "#FFF", fontWeight: "900" }, secondaryButton: { alignItems: "center", alignSelf: "flex-start", backgroundColor: "#7E22CE", borderRadius: 9, justifyContent: "center", marginTop: 14, minHeight: 46, paddingHorizontal: 18 }, territories: { gap: 12, marginTop: 18 }, territory: { backgroundColor: "#120C1B", borderColor: "rgba(196,181,253,0.22)", borderRadius: 15, borderWidth: 1, padding: 17 }, territoryTitle: { color: "#FFF", fontSize: 20, fontWeight: "900" }, influenceBlock: { marginTop: 11 }, influenceRow: { flexDirection: "row", justifyContent: "space-between" }, influenceText: { color: "#FFF", fontSize: 13, fontWeight: "900" }, track: { backgroundColor: "rgba(255,255,255,0.09)", borderRadius: 4, height: 6, marginTop: 5, overflow: "hidden" }, fill: { borderRadius: 4, height: 6 }, controller: { color: "#A1A1AA", fontSize: 11, fontWeight: "900", marginTop: 16, textTransform: "uppercase" }, reward: { color: "#E9D5FF", fontSize: 13, fontWeight: "900", marginTop: 10 }, warning: { color: "#FCD34D", fontWeight: "800", marginTop: 13 }, success: { color: "#6EE7B7", fontWeight: "900", marginTop: 13 }, encounterBlock: { marginTop: 14 }, requirement: { color: "#FFF", fontSize: 15, fontWeight: "900", lineHeight: 21 }, encounterProgress: { color: "#F0ABFC", fontSize: 31, fontWeight: "900", marginTop: 10 }, encounterActions: { flexDirection: "row", flexWrap: "wrap", gap: 10 }, impactRow: { flexDirection: "row", gap: 36, marginTop: 10 }, impactValue: { color: "#FFF", fontSize: 30, fontWeight: "900" }, error: { backgroundColor: "rgba(127,29,29,0.3)", borderRadius: 8, color: "#FDA4AF", fontWeight: "700", marginTop: 16, padding: 10 }, modal: { backgroundColor: "#08050D", flex: 1, padding: 22, paddingTop: 52 }, closeButton: { alignSelf: "flex-end", padding: 8 }, closeText: { color: "#D8B4FE", fontWeight: "900" }, modalTitle: { color: "#FFF", fontSize: 24, fontWeight: "900", marginTop: 12 }, modalCopy: { color: "#D4D4D8", lineHeight: 20, marginTop: 8 }, qrBox: { alignItems: "center", alignSelf: "center", backgroundColor: "#FFF", borderRadius: 16, marginTop: 28, padding: 20 }, shortCode: { color: "#18181B", fontSize: 26, fontWeight: "900", letterSpacing: 5, marginTop: 18 }, refreshText: { color: "#52525B", fontSize: 11, fontWeight: "700", marginTop: 8 }, camera: { borderRadius: 14, height: 300, marginTop: 20, overflow: "hidden", width: "100%" }, torch: { alignItems: "center", borderColor: "#A855F7", borderRadius: 9, borderWidth: 1, marginTop: 10, padding: 11 }, torchActive: { backgroundColor: "#7E22CE" }, torchText: { color: "#FFF", fontWeight: "900" }, or: { color: "#A1A1AA", fontSize: 11, fontWeight: "900", marginVertical: 17, textAlign: "center" }, codeInput: { backgroundColor: "#18131F", borderColor: "#3F3F46", borderRadius: 9, borderWidth: 1, color: "#FFF", fontSize: 20, fontWeight: "900", letterSpacing: 4, marginBottom: 10, padding: 14, textAlign: "center" }, feedback: { color: "#FCD34D", fontWeight: "900", marginTop: 14, textAlign: "center" }, capture: { backgroundColor: "rgba(59,7,100,0.97)", borderColor: "rgba(240,171,252,0.55)", borderRadius: 14, borderWidth: 1, left: 18, padding: 18, position: "absolute", right: 18, top: 28, zIndex: 50 }, captureText: { color: "#FFF", fontSize: 17, fontWeight: "900", lineHeight: 25, textAlign: "center" },
+  safe: { backgroundColor: "#08050D", flex: 1 }, page: { flex: 1 }, content: { padding: 18, paddingBottom: 50 }, back: { color: "#D8B4FE", fontWeight: "900" }, present: { color: "#F0ABFC", fontSize: 11, fontWeight: "900", letterSpacing: 2.5, marginTop: 24 }, hero: { color: "#FFF", fontSize: 42, fontWeight: "900", marginTop: 5 }, panel: { backgroundColor: "rgba(0,0,0,0.36)", borderColor: "rgba(255,255,255,0.1)", borderRadius: 15, borderWidth: 1, marginTop: 18, padding: 17 }, center: { alignItems: "center" }, title: { color: "#FFF", fontSize: 21, fontWeight: "900", marginTop: 8 }, muted: { color: "#A1A1AA", fontSize: 13, lineHeight: 19, marginTop: 5 }, label: { color: "#A1A1AA", fontSize: 11, fontWeight: "900" }, faction: { color: "#FFF", fontSize: 29, fontWeight: "900", marginTop: 6 }, winner: { color: "#FFF", fontSize: 27, fontWeight: "900", marginTop: 12, textAlign: "center" }, score: { color: "#D4D4D8", fontSize: 12, fontWeight: "700", marginTop: 7, textAlign: "center" }, primary: { alignItems: "center", alignSelf: "flex-start", backgroundColor: "#C026D3", borderRadius: 9, justifyContent: "center", marginTop: 14, minHeight: 46, paddingHorizontal: 18 }, primaryWide: { alignItems: "center", backgroundColor: "#C026D3", borderRadius: 9, justifyContent: "center", minHeight: 48, paddingHorizontal: 18 }, primaryText: { color: "#FFF", fontWeight: "900" }, secondaryButton: { alignItems: "center", alignSelf: "flex-start", backgroundColor: "#7E22CE", borderRadius: 9, justifyContent: "center", marginTop: 14, minHeight: 46, paddingHorizontal: 18 }, territories: { gap: 12, marginTop: 18 }, territory: { backgroundColor: "#120C1B", borderColor: "rgba(196,181,253,0.22)", borderRadius: 15, borderWidth: 1, padding: 17 }, territoryTitle: { color: "#FFF", fontSize: 20, fontWeight: "900" }, influenceBlock: { marginTop: 11 }, influenceRow: { flexDirection: "row", justifyContent: "space-between" }, influenceText: { color: "#FFF", fontSize: 13, fontWeight: "900" }, track: { backgroundColor: "rgba(255,255,255,0.09)", borderRadius: 4, height: 6, marginTop: 5, overflow: "hidden" }, fill: { borderRadius: 4, height: 6 }, controller: { color: "#A1A1AA", fontSize: 11, fontWeight: "900", marginTop: 16, textTransform: "uppercase" }, reward: { color: "#E9D5FF", fontSize: 13, fontWeight: "900", marginTop: 10 }, countdown: { color: "#D4D4D8", fontSize: 13, fontWeight: "900", marginTop: 7 }, warning: { color: "#FCD34D", fontWeight: "800", marginTop: 13 }, success: { color: "#6EE7B7", fontWeight: "900", marginTop: 13 }, encounterBlock: { marginTop: 14 }, requirement: { color: "#FFF", fontSize: 15, fontWeight: "900", lineHeight: 21 }, encounterProgress: { color: "#F0ABFC", fontSize: 31, fontWeight: "900", marginTop: 10 }, encounterActions: { flexDirection: "row", flexWrap: "wrap", gap: 10 }, impactRow: { flexDirection: "row", gap: 36, marginTop: 10 }, impactValue: { color: "#FFF", fontSize: 30, fontWeight: "900" }, error: { backgroundColor: "rgba(127,29,29,0.3)", borderRadius: 8, color: "#FDA4AF", fontWeight: "700", marginTop: 16, padding: 10 }, modal: { backgroundColor: "#08050D", flex: 1, padding: 22, paddingTop: 52 }, closeButton: { alignSelf: "flex-end", padding: 8 }, closeText: { color: "#D8B4FE", fontWeight: "900" }, modalTitle: { color: "#FFF", fontSize: 24, fontWeight: "900", marginTop: 12 }, modalCopy: { color: "#D4D4D8", lineHeight: 20, marginTop: 8 }, qrBox: { alignItems: "center", alignSelf: "center", backgroundColor: "#FFF", borderRadius: 16, marginTop: 28, padding: 20 }, shortCode: { color: "#18181B", fontSize: 26, fontWeight: "900", letterSpacing: 5, marginTop: 18 }, refreshText: { color: "#52525B", fontSize: 11, fontWeight: "700", marginTop: 8 }, camera: { borderRadius: 14, height: 300, marginTop: 20, overflow: "hidden", width: "100%" }, torch: { alignItems: "center", borderColor: "#A855F7", borderRadius: 9, borderWidth: 1, marginTop: 10, padding: 11 }, torchActive: { backgroundColor: "#7E22CE" }, torchText: { color: "#FFF", fontWeight: "900" }, or: { color: "#A1A1AA", fontSize: 11, fontWeight: "900", marginVertical: 17, textAlign: "center" }, codeInput: { backgroundColor: "#18131F", borderColor: "#3F3F46", borderRadius: 9, borderWidth: 1, color: "#FFF", fontSize: 20, fontWeight: "900", letterSpacing: 4, marginBottom: 10, padding: 14, textAlign: "center" }, feedback: { color: "#FCD34D", fontWeight: "900", marginTop: 14, textAlign: "center" }, capture: { backgroundColor: "rgba(59,7,100,0.97)", borderColor: "rgba(240,171,252,0.55)", borderRadius: 14, borderWidth: 1, left: 18, padding: 18, position: "absolute", right: 18, top: 28, zIndex: 50 }, captureText: { color: "#FFF", fontSize: 17, fontWeight: "900", lineHeight: 25, textAlign: "center" },
 });
