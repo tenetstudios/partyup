@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { requestPushDispatch } from "./pushDispatch";
 
 export type WildFaction = { key: string; label: string; emoji: string; color?: string };
 export type WildTerritory = {
@@ -117,6 +118,7 @@ export async function publishWildMission(
     }),
   });
   if (error) throw new Error(error.message);
+  requestPushDispatch(supabase, (data as { room_id?: string } | null)?.room_id);
   return data;
 }
 
@@ -161,6 +163,7 @@ export async function completeWildMission(supabase: SupabaseClient, missionId: s
 export async function endWildGame(supabase: SupabaseClient, gameId: string) {
   const { data, error } = await supabase.rpc("end_wild_game", { p_game_id: gameId });
   if (error) throw new Error(error.message);
+  requestPushDispatch(supabase, (data as { room_id?: string } | null)?.room_id);
   return data;
 }
 

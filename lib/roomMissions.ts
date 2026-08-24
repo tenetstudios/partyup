@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { requestPushDispatch } from "./pushDispatch";
 
 export type RoomMission = {
   id: string;
@@ -214,6 +215,7 @@ export async function publishRoomMission(
     ...(memoryVerification ? { p_required_media_type: input.requiredMediaType ?? "any" } : {}),
   });
   if (error) throw new Error(error.message);
+  requestPushDispatch(supabase, roomId);
   return firstRow<RoomMission>(data);
 }
 
@@ -244,6 +246,7 @@ export async function claimMemoryMissionCompletion(supabase: SupabaseClient, mis
 export async function publishAnimalPackMission(supabase: SupabaseClient, roomId: string, input: { animalCount: number; targetEncounters: number; durationMinutes: number }) {
   const { data, error } = await supabase.rpc("publish_animal_pack_mission", { p_room_id: roomId, p_animal_count: input.animalCount, p_target_encounters: input.targetEncounters, p_duration_minutes: input.durationMinutes });
   if (error) throw new Error(error.message);
+  requestPushDispatch(supabase, roomId);
   return firstRow<RoomMission>(data);
 }
 
@@ -265,6 +268,7 @@ export async function publishConnectionMission(
     p_duration_minutes: input.durationMinutes,
   });
   if (error) throw new Error(error.message);
+  requestPushDispatch(supabase, roomId);
   return firstRow<RoomMission>(data);
 }
 

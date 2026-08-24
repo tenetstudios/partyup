@@ -2,13 +2,14 @@
   "expo": {
     "name": "PartyUp",
     "slug": "PartyUp",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "partyup",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/images/icon.png"
+      "icon": "./assets/images/icon.png",
+      "bundleIdentifier": "io.partyup.app"
     },
     "android": {
       "permissions": [
@@ -43,6 +44,13 @@
         }
       ],
       "expo-web-browser",
+      [
+        "expo-notifications",
+        {
+          "color": "#C026D3",
+          "defaultChannel": "partyup"
+        }
+      ],
       [
         "expo-camera",
         {

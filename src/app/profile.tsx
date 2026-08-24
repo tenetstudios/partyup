@@ -12,6 +12,8 @@ import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import { supabase } from "../../lib/supabase";
+import { disablePushNotifications } from "../../lib/pushNotifications";
+import NotificationSettings from "../components/NotificationSettings";
 
 export default function Profile() {
   const [username, setUsername] = useState("");
@@ -190,6 +192,8 @@ export default function Profile() {
         This is how people see you in rooms.
       </Text>
 
+      <NotificationSettings />
+
       <View style={styles.card}>
         {avatarUrl ? (
           <Image source={{ uri: avatarUrl }} style={styles.avatarPreview} />
@@ -238,6 +242,7 @@ export default function Profile() {
         <TouchableOpacity
   style={styles.signOutButton}
   onPress={async () => {
+    await disablePushNotifications().catch(() => undefined);
     const { error } = await supabase.auth.signOut({ scope: "local" });
 
     if (error) {

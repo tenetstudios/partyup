@@ -1025,6 +1025,8 @@ async function syncRoomCounts(roomId: string) {
 }
 
   async function signOut() {
+    const { disablePushNotifications } = await import("../../lib/pushNotifications");
+    await disablePushNotifications().catch(() => undefined);
     await supabase.auth.signOut();
     router.replace("/");
   }

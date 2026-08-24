@@ -9,17 +9,22 @@ export type NotificationType =
   | "friend_created_room"
   | "room_approved"
   | "event_recap"
+  | "recap_ready"
+  | "mission_started"
+  | "announcement"
+  | "wild_result"
   | "verification_approved";
 
 export interface Notification {
   id: string;
   user_id: string;
-  actor_id: string;
+  actor_id: string | null;
   type: NotificationType;
   title: string;
   body: string;
   room_id: string | null;
   recap_room_id: string | null;
+  data?: Record<string, unknown> | null;
   is_read: boolean;
   created_at: string;
 }

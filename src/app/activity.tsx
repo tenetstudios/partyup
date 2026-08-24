@@ -8,6 +8,7 @@ import {
 import { resolveMyEventRecaps } from "../../lib/recaps";
 import { supabase } from "../../lib/supabase";
 import { FollowedSeriesEvent, formatSeriesDate } from "../../lib/eventSeries";
+import { notificationDestination } from "../lib/notificationRouting";
 
 type FollowingRoom = {
   id: string;
@@ -152,7 +153,9 @@ export default function ActivityScreen() {
       "room_approved",
     ];
 
-    if (notification.recap_room_id || (notification.type === "event_recap" && notification.room_id)) {
+    if (["mission_started", "announcement", "wild_result", "recap_ready"].includes(notification.type)) {
+      router.push(notificationDestination({ ...(notification.data ?? {}), type: notification.type, roomId: notification.room_id }) as never);
+    } else if (notification.recap_room_id || (notification.type === "event_recap" && notification.room_id)) {
       router.push(`/recap/${notification.recap_room_id || notification.room_id}` as never);
     } else if (roomTypes.includes(notification.type) && notification.room_id) {
       router.push(`/room/${notification.room_id}`);

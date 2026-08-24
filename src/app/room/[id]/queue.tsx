@@ -6,6 +6,7 @@ import {
   Alert,
   ScrollView,
   Share,
+  Switch,
   StyleSheet,
   Text,
   TextInput,
@@ -202,6 +203,7 @@ function RoomAnnouncementEditor({ roomId }: { roomId: string }) {
   const [creating, setCreating] = useState(false);
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
+  const [notifyAttendees, setNotifyAttendees] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const loadAnnouncement = useCallback(async () => {
@@ -220,13 +222,14 @@ function RoomAnnouncementEditor({ roomId }: { roomId: string }) {
       return;
     }
     setBusy(true);
-    const { error } = await supabase.rpc("publish_room_announcement", {
+    const { error } = await supabase.rpc("publish_room_announcement_with_push", {
       p_room_id: roomId,
       p_title: title.trim(),
       p_message: message.trim() || null,
       p_cta_label: null,
       p_cta_url: null,
       p_expires_at: null,
+      p_notify_attendees: notifyAttendees,
     });
     setBusy(false);
     if (error) {
@@ -236,6 +239,10 @@ function RoomAnnouncementEditor({ roomId }: { roomId: string }) {
     setCreating(false);
     setTitle("");
     setMessage("");
+    setNotifyAttendees(false);
+    if (notifyAttendees) {
+      void supabase.functions.invoke("dispatch-push-notifications", { body: { roomId } });
+    }
     await loadAnnouncement();
   }
 
@@ -293,6 +300,13 @@ function RoomAnnouncementEditor({ roomId }: { roomId: string }) {
             placeholderTextColor="#71717A"
             style={styles.descriptionInput}
           />
+          <View style={styles.inlineActions}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.name}>Notify attendees</Text>
+              <Text style={styles.meta}>Send a push notification as well as posting in the room.</Text>
+            </View>
+            <Switch value={notifyAttendees} onValueChange={setNotifyAttendees} trackColor={{ true: "#7C3AED" }} />
+          </View>
           <View style={styles.inlineActions}>
             <TouchableOpacity style={styles.purplePillButton} onPress={() => void publishAnnouncement()} disabled={busy}>
               <Text style={styles.buttonText}>{busy ? "Publishing..." : "Publish Announcement"}</Text>

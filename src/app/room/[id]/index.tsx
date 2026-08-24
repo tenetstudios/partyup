@@ -19,6 +19,7 @@ import { supabase } from "../../../../lib/supabase";
 import LiveKitRoomView from "../../../components/LiveKitRoomView";
 import RoomMissionCard from "../../../components/RoomMissionCard";
 import WildRoomCard from "../../../components/WildRoomCard";
+import NotificationOptInCard from "../../../components/NotificationOptInCard";
 import { getOrCreateEventMatchPool } from "../../../lib/matchmaking";
 import { friendlyChatError } from "../../../../lib/chatModeration";
 import {
@@ -1429,6 +1430,7 @@ const requestedStreamers = [
         <TouchableOpacity onPress={() => router.replace("/home")}>
           <Text style={styles.mobileTopBack}>Back to Home</Text>
         </TouchableOpacity>
+        <WildRoomCard roomId={room.id} />
         <View style={styles.endedEventCard}>
           <Text style={styles.endedEventEyebrow}>PAST EVENT</Text>
           <Text style={styles.endedEventTitle}>{room.title}</Text>
@@ -1438,9 +1440,6 @@ const requestedStreamers = [
           </TouchableOpacity>
           <TouchableOpacity style={styles.endedEventSecondary} onPress={() => router.push(`/recap/${room.id}` as never)}>
             <Text style={styles.endedEventSecondaryText}>Open Recap</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.endedEventSecondary} onPress={() => router.push(`/room/${room.id}/wild` as never)}>
-            <Text style={styles.endedEventSecondaryText}>View Into the Wild</Text>
           </TouchableOpacity>
           {currentUserId === room.host_id && (
             <TouchableOpacity style={styles.endedEventSecondary} onPress={openManageRoom}>
@@ -2057,6 +2056,7 @@ const requestedStreamers = [
 
           <WildRoomCard roomId={room.id} />
           <RoomMissionCard roomId={room.id} />
+          <NotificationOptInCard />
 
           {!isDesktop && mobileRoomOverview}
 
