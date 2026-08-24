@@ -160,6 +160,7 @@ export default function RoomMissionCard({ roomId }: { roomId: string }) {
   const isAnimalPack = mission.mission_type === "animal_pack";
   const isConnection = mission.mission_type === "connection";
   const isWild = mission.mission_type === "wild_faction";
+  const isLiveNode = mission.mission_type === "live_node";
   const isMemoryMission = mission.config.verification_type === "memory_upload";
   const plural = animalState ? (animalDetails[animalState.assignment_key]?.plural ?? "pack members") : "pack members";
   const tokenRefreshSeconds = encounterToken && now
@@ -212,7 +213,7 @@ export default function RoomMissionCard({ roomId }: { roomId: string }) {
       <View style={styles.headerRow}>
         <View style={styles.textBlock}>
           <View style={styles.metaRow}>
-            <Text style={styles.badge}>{isAnimalPack ? "FIND YOUR PACK" : isConnection ? "MEET NEW PEOPLE" : isWild ? "INTO THE WILD" : "NEW MISSION"}</Text>
+            <Text style={styles.badge}>{isAnimalPack ? "FIND YOUR PACK" : isConnection ? "MEET NEW PEOPLE" : isWild ? "INTO THE WILD" : isLiveNode ? "LIVE NODE" : "NEW MISSION"}</Text>
             {remaining && <Text style={styles.timer}>{remaining.expired ? "Ending..." : `${remaining.label} left`}</Text>}
           </View>
           <Text style={styles.title} numberOfLines={expanded ? undefined : 2}>{mission.title}</Text>
@@ -279,6 +280,13 @@ export default function RoomMissionCard({ roomId }: { roomId: string }) {
                 <TouchableOpacity style={styles.primaryButton} onPress={() => isMemoryMission && !mission.viewer_completed ? router.push({ pathname: "/room/[id]/memories", params: { id: roomId, missionId: mission.id } }) : router.push(`/room/${roomId}/wild`)}>
                   <Text style={styles.primaryText}>{isMemoryMission ? mission.viewer_completed ? "Memory verified ✓" : "Add Memory" : "Open Into the Wild"}</Text>
                 </TouchableOpacity>
+                {mission.can_manage && <Text style={styles.count}>{mission.completion_count} completed</Text>}
+              </View>
+            ) : isLiveNode ? (
+              <View style={styles.connectionContent}>
+                {mission.description ? <Text style={styles.description}>{mission.description}</Text> : null}
+                {mission.config.reward_description ? <View style={styles.completePanel}><Text style={styles.completeCopy}>PHYSICAL REWARD</Text><Text style={styles.completeTitle}>{mission.config.reward_description}</Text></View> : null}
+                <Text style={mission.viewer_completed ? styles.success : styles.memoryRequirement}>{mission.viewer_completed ? "NODE CLAIM VERIFIED ✓" : "Find and scan the physical PartyUp QR. The first valid claim wins."}</Text>
                 {mission.can_manage && <Text style={styles.count}>{mission.completion_count} completed</Text>}
               </View>
             ) : (
