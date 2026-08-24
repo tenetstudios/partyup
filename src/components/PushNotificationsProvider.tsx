@@ -8,8 +8,8 @@ import { supabase } from "../../lib/supabase";
 let currentPathname = "/";
 
 Notifications.setNotificationHandler({
-  handleNotification: async (notification: { request: { content: { data: Record<string, unknown> } } }) => {
-    const data = notification.request.content.data as Record<string, unknown>;
+  handleNotification: async (notification) => {
+    const data = notification.request.content.data ?? {};
     const roomId = typeof data.roomId === "string" ? data.roomId : null;
     const alreadyViewingRoom = Boolean(roomId && currentPathname.startsWith(`/room/${roomId}`));
     return {
@@ -52,13 +52,13 @@ export default function PushNotificationsProvider({ children }: PropsWithChildre
   }, []);
 
   useEffect(() => {
-    const subscription = Notifications.addNotificationResponseReceivedListener((response: { notification: { request: { content: { data: Record<string, unknown> } } } }) => {
-      void openNotification(response.notification.request.content.data as Record<string, unknown>);
+    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+      void openNotification(response.notification.request.content.data ?? {});
     });
     if (!handledInitial.current) {
       handledInitial.current = true;
-      void Notifications.getLastNotificationResponseAsync().then((response: { notification: { request: { content: { data: Record<string, unknown> } } } } | null) => {
-        if (response) void openNotification(response.notification.request.content.data as Record<string, unknown>);
+      void Notifications.getLastNotificationResponseAsync().then((response) => {
+        if (response) void openNotification(response.notification.request.content.data ?? {});
       });
     }
     return () => subscription.remove();
