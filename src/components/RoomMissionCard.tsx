@@ -160,6 +160,7 @@ export default function RoomMissionCard({ roomId }: { roomId: string }) {
   const isAnimalPack = mission.mission_type === "animal_pack";
   const isConnection = mission.mission_type === "connection";
   const isWild = mission.mission_type === "wild_faction";
+  const isMemoryMission = mission.config.verification_type === "memory_upload";
   const plural = animalState ? (animalDetails[animalState.assignment_key]?.plural ?? "pack members") : "pack members";
   const tokenRefreshSeconds = encounterToken && now
     ? Math.max(0, Math.ceil((Date.parse(encounterToken.expires_at) - now - 5_000) / 1000))
@@ -274,16 +275,18 @@ export default function RoomMissionCard({ roomId }: { roomId: string }) {
               <View style={styles.connectionContent}>
                 {mission.description ? <Text style={styles.description}>{mission.description}</Text> : null}
                 <Text style={styles.connectionProgressLabel}>+{mission.config.influence_reward ?? 0} FACTION INFLUENCE</Text>
-                <TouchableOpacity style={styles.primaryButton} onPress={() => router.push(`/room/${roomId}/wild`)}>
-                  <Text style={styles.primaryText}>Open Into the Wild</Text>
+                {isMemoryMission && <Text style={styles.memoryRequirement}>Requirement: {mission.config.required_media_type === "image" ? "Upload a new photo." : mission.config.required_media_type === "video" ? "Upload a new video." : "Upload a new photo or video."}</Text>}
+                <TouchableOpacity style={styles.primaryButton} onPress={() => isMemoryMission && !mission.viewer_completed ? router.push({ pathname: "/room/[id]/memories", params: { id: roomId, missionId: mission.id } }) : router.push(`/room/${roomId}/wild`)}>
+                  <Text style={styles.primaryText}>{isMemoryMission ? mission.viewer_completed ? "Memory verified ✓" : "Add Memory" : "Open Into the Wild"}</Text>
                 </TouchableOpacity>
                 {mission.can_manage && <Text style={styles.count}>{mission.completion_count} completed</Text>}
               </View>
             ) : (
             <>
               {mission.description ? <Text style={styles.description}>{mission.description}</Text> : null}
-              <TouchableOpacity style={[styles.genericCompleteButton, mission.viewer_completed && styles.completedButton]} onPress={() => void markComplete()} disabled={busy || mission.viewer_completed || Boolean(remaining?.expired)}>
-                <Text style={styles.primaryText}>{mission.viewer_completed ? "Completed" : busy ? "Completing..." : "Mark Complete"}</Text>
+              {isMemoryMission && <Text style={styles.memoryRequirement}>Requirement: {mission.config.required_media_type === "image" ? "Upload a new photo." : mission.config.required_media_type === "video" ? "Upload a new video." : "Upload a new photo or video."}</Text>}
+              <TouchableOpacity style={[styles.genericCompleteButton, mission.viewer_completed && styles.completedButton]} onPress={() => isMemoryMission ? router.push({ pathname: "/room/[id]/memories", params: { id: roomId, missionId: mission.id } }) : void markComplete()} disabled={busy || mission.viewer_completed || Boolean(remaining?.expired)}>
+                <Text style={styles.primaryText}>{mission.viewer_completed ? (isMemoryMission ? "Memory verified ✓" : "Completed") : isMemoryMission ? "Add Memory" : busy ? "Completing..." : "Mark Complete"}</Text>
               </TouchableOpacity>
               {mission.can_manage && <Text style={styles.count}>{mission.completion_count} completed</Text>}
             </>
@@ -370,6 +373,7 @@ const styles = StyleSheet.create({
   completeTitle: { color: "#6EE7B7", fontSize: 20, fontWeight: "900", textAlign: "center" },
   completeCopy: { color: "#D1FAE5", fontSize: 13, marginTop: 4, textAlign: "center" },
   description: { color: "#D4D4D8", fontSize: 14, lineHeight: 21 },
+  memoryRequirement: { color: "#E9D5FF", fontSize: 13, fontWeight: "900", marginTop: 10 },
   connectionContent: { alignItems: "center" },
   connectionProgress: { color: "#F9A8D4", fontSize: 34, fontWeight: "900", marginTop: 14 },
   connectionProgressLabel: { color: "#E9D5FF", fontSize: 13, fontWeight: "900", marginBottom: 15, marginTop: 2 },

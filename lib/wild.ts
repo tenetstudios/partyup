@@ -20,10 +20,12 @@ export type WildMission = {
     faction_key: string;
     territory_key: string;
     influence_reward: number;
-    verification_type?: "none" | "encounter";
+    verification_type?: "none" | "encounter" | "memory_upload";
     encounter_relationship?: "same_faction" | "different_faction" | "specific_faction" | null;
     required_encounters?: number;
     target_faction?: string | null;
+    required_media_type?: "any" | "image" | "video";
+    required_memories?: number;
   };
   viewer_completed: boolean;
   eligible: boolean;
@@ -92,9 +94,10 @@ export async function enterWildGame(supabase: SupabaseClient, gameId: string, gu
 
 export async function publishWildMission(
   supabase: SupabaseClient,
-  input: { gameId: string; factionKey: string; territoryKey: string; title: string; description?: string | null; influenceReward: number; durationMinutes: number; verificationType?: "none" | "encounter"; encounterRelationship?: "same_faction" | "different_faction" | "specific_faction" | null; requiredEncounters?: number; targetFaction?: string | null },
+  input: { gameId: string; factionKey: string; territoryKey: string; title: string; description?: string | null; influenceReward: number; durationMinutes: number; verificationType?: "none" | "encounter" | "memory_upload"; encounterRelationship?: "same_faction" | "different_faction" | "specific_faction" | null; requiredEncounters?: number; targetFaction?: string | null; requiredMediaType?: "any" | "image" | "video" },
 ) {
-  const { data, error } = await supabase.rpc("publish_wild_faction_mission", {
+  const memoryVerification = input.verificationType === "memory_upload";
+  const { data, error } = await supabase.rpc(memoryVerification ? "publish_wild_memory_mission" : "publish_wild_faction_mission", {
     p_game_id: input.gameId,
     p_faction_key: input.factionKey,
     p_territory_key: input.territoryKey,
@@ -102,10 +105,12 @@ export async function publishWildMission(
     p_description: input.description ?? null,
     p_influence_reward: input.influenceReward,
     p_duration_minutes: input.durationMinutes,
-    p_verification_type: input.verificationType ?? "none",
-    p_encounter_relationship: input.encounterRelationship ?? null,
-    p_required_encounters: input.requiredEncounters ?? 1,
-    p_target_faction: input.targetFaction ?? null,
+    ...(memoryVerification ? { p_required_media_type: input.requiredMediaType ?? "any" } : {
+      p_verification_type: input.verificationType ?? "none",
+      p_encounter_relationship: input.encounterRelationship ?? null,
+      p_required_encounters: input.requiredEncounters ?? 1,
+      p_target_faction: input.targetFaction ?? null,
+    }),
   });
   if (error) throw new Error(error.message);
   return data;

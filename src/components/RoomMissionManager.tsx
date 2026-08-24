@@ -58,6 +58,8 @@ export default function RoomMissionManager({
   const [animalCount, setAnimalCount] = useState(6);
   const [targetEncounters, setTargetEncounters] = useState(3);
   const [targetConnections, setTargetConnections] = useState("3");
+  const [genericVerification, setGenericVerification] = useState<"none" | "memory_upload">("none");
+  const [requiredMediaType, setRequiredMediaType] = useState<"any" | "image" | "video">("any");
   const [hostResults, setHostResults] = useState<MissionCompletedParticipants | null>(null);
   const [operations, setOperations] = useState<MissionOperationsData | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
@@ -178,7 +180,7 @@ export default function RoomMissionManager({
           durationMinutes: duration ?? 10,
         });
       } else {
-        await publishRoomMission(supabase, roomId, { title, description, durationMinutes: duration });
+        await publishRoomMission(supabase, roomId, { title, description, durationMinutes: duration, verificationType: genericVerification, requiredMediaType });
       }
       setTitle("");
       setDescription("");
@@ -405,6 +407,9 @@ export default function RoomMissionManager({
               </View>
             </>
           )}
+
+          {missionType === "generic" && <><Text style={styles.label}>Verification</Text><View style={styles.durationRow}>{([['none','None'],['memory_upload','Memory upload']] as const).map(([value,label]) => <TouchableOpacity key={value} style={[styles.durationButton, genericVerification === value && styles.durationButtonActive]} onPress={() => setGenericVerification(value)}><Text style={[styles.durationText, genericVerification === value && styles.durationTextActive]}>{label}</Text></TouchableOpacity>)}</View>{genericVerification === "memory_upload" && <><Text style={styles.label}>Required media</Text><View style={styles.durationRow}>{([['any','Photo or video'],['image','Photo'],['video','Video']] as const).map(([value,label]) => <TouchableOpacity key={value} style={[styles.durationButton, requiredMediaType === value && styles.durationButtonActive]} onPress={() => setRequiredMediaType(value)}><Text style={[styles.durationText, requiredMediaType === value && styles.durationTextActive]}>{label}</Text></TouchableOpacity>)}</View><View style={styles.capacityNotice}><Text style={styles.capacityNoticeText}>Participants must post a new Room Memory while this Mission is active. Existing or removed Memories cannot qualify.</Text></View></>}
+          </>}
 
           <Text style={styles.label}>Duration</Text>
           <View style={styles.durationRow}>

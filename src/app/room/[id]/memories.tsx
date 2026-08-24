@@ -22,6 +22,7 @@ import {
   unsaveRoomMemory,
   type RoomMemory,
 } from "../../../../lib/memories";
+import { verifyMemoryMissionCompletion } from "../../../../lib/roomMissions";
 import { ensurePartyUpIdentity } from "../../../lib/matchmaking";
 
 type Room = {
@@ -75,7 +76,7 @@ function getContentType(asset: ImagePicker.ImagePickerAsset, mediaType: MemoryMe
 }
 
 export default function RoomMemoriesScreen() {
-  const { id } = useLocalSearchParams();
+  const { id, missionId } = useLocalSearchParams<{ id: string; missionId?: string }>();
   const roomId = String(id);
 
   const [room, setRoom] = useState<Room | null>(null);
@@ -227,16 +228,32 @@ export default function RoomMemoriesScreen() {
         throw new Error(uploadError.message);
       }
 
-      const { error: insertError } = await supabase.from("room_memories").insert({
-        room_id: roomId,
-        uploader_identity_id: currentIdentityId,
-        media_type: mediaType,
-        media_path: mediaPath,
-      });
+      const { data: insertedMemory, error: insertError } = await supabase
+        .from("room_memories")
+        .insert({
+          room_id: roomId,
+          uploader_identity_id: currentIdentityId,
+          media_type: mediaType,
+          media_path: mediaPath,
+        })
+        .select("id")
+        .single<{ id: string }>();
 
       if (insertError) {
         await supabase.storage.from("room-memories").remove([mediaPath]);
         throw new Error(insertError.message);
+      }
+
+      if (missionId && insertedMemory) {
+        try {
+          await verifyMemoryMissionCompletion(supabase, missionId, insertedMemory.id);
+          Alert.alert("Mission complete", "Your new Memory was verified and the Mission reward was applied.");
+        } catch (verificationError) {
+          Alert.alert(
+            "Memory posted",
+            `The Memory was posted normally, but it did not complete the Mission: ${verificationError instanceof Error ? verificationError.message : "verification failed"}`,
+          );
+        }
       }
 
       setPendingMemory(null);
@@ -371,6 +388,7 @@ export default function RoomMemoriesScreen() {
         {!canUpload && (
           <Text style={styles.helperText}>Sign in and join the room to add Memories.</Text>
         )}
+        {missionId && <Text style={styles.missionHint}>Mission upload: only the new Memory you post here will be submitted as evidence.</Text>}
       </View> : <View style={styles.addPanel}><Text style={styles.addTitle}>Past event Memories</Text><Text style={styles.addCopy}>These Memories are retained. New uploads are closed because the event has ended.</Text></View>}
 
       {pendingMemory && (
@@ -652,6 +670,12 @@ const styles = StyleSheet.create({
     color: "#FBBF24",
     fontSize: 12,
     fontWeight: "800",
+  },
+  missionHint: {
+    color: "#E9D5FF",
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 18,
   },
   previewPanel: {
     backgroundColor: "#11101B",
