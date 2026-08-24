@@ -159,6 +159,7 @@ export default function RoomMissionCard({ roomId }: { roomId: string }) {
   const remaining = now ? getMissionTimeRemaining(mission.ends_at, now) : null;
   const isAnimalPack = mission.mission_type === "animal_pack";
   const isConnection = mission.mission_type === "connection";
+  const isWild = mission.mission_type === "wild_faction";
   const plural = animalState ? (animalDetails[animalState.assignment_key]?.plural ?? "pack members") : "pack members";
   const tokenRefreshSeconds = encounterToken && now
     ? Math.max(0, Math.ceil((Date.parse(encounterToken.expires_at) - now - 5_000) / 1000))
@@ -210,7 +211,7 @@ export default function RoomMissionCard({ roomId }: { roomId: string }) {
       <View style={styles.headerRow}>
         <View style={styles.textBlock}>
           <View style={styles.metaRow}>
-            <Text style={styles.badge}>{isAnimalPack ? "FIND YOUR PACK" : isConnection ? "MEET NEW PEOPLE" : "NEW MISSION"}</Text>
+            <Text style={styles.badge}>{isAnimalPack ? "FIND YOUR PACK" : isConnection ? "MEET NEW PEOPLE" : isWild ? "INTO THE WILD" : "NEW MISSION"}</Text>
             {remaining && <Text style={styles.timer}>{remaining.expired ? "Ending..." : `${remaining.label} left`}</Text>}
           </View>
           <Text style={styles.title} numberOfLines={expanded ? undefined : 2}>{mission.title}</Text>
@@ -267,6 +268,15 @@ export default function RoomMissionCard({ roomId }: { roomId: string }) {
                     )}
                   </>
                 ) : <Text style={styles.description}>Loading verified connection progress...</Text>}
+                {mission.can_manage && <Text style={styles.count}>{mission.completion_count} completed</Text>}
+              </View>
+            ) : isWild ? (
+              <View style={styles.connectionContent}>
+                {mission.description ? <Text style={styles.description}>{mission.description}</Text> : null}
+                <Text style={styles.connectionProgressLabel}>+{mission.config.influence_reward ?? 0} FACTION INFLUENCE</Text>
+                <TouchableOpacity style={styles.primaryButton} onPress={() => router.push(`/room/${roomId}/wild`)}>
+                  <Text style={styles.primaryText}>Open Into the Wild</Text>
+                </TouchableOpacity>
                 {mission.can_manage && <Text style={styles.count}>{mission.completion_count} completed</Text>}
               </View>
             ) : (

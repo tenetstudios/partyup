@@ -18,6 +18,7 @@ import {
 import { supabase } from "../../../../lib/supabase";
 import LiveKitRoomView from "../../../components/LiveKitRoomView";
 import RoomMissionCard from "../../../components/RoomMissionCard";
+import WildRoomCard from "../../../components/WildRoomCard";
 import { getOrCreateEventMatchPool } from "../../../lib/matchmaking";
 import { friendlyChatError } from "../../../../lib/chatModeration";
 import {
@@ -1438,6 +1439,9 @@ const requestedStreamers = [
           <TouchableOpacity style={styles.endedEventSecondary} onPress={() => router.push(`/recap/${room.id}` as never)}>
             <Text style={styles.endedEventSecondaryText}>Open Recap</Text>
           </TouchableOpacity>
+          <TouchableOpacity style={styles.endedEventSecondary} onPress={() => router.push(`/room/${room.id}/wild` as never)}>
+            <Text style={styles.endedEventSecondaryText}>View Into the Wild</Text>
+          </TouchableOpacity>
           {currentUserId === room.host_id && (
             <TouchableOpacity style={styles.endedEventSecondary} onPress={openManageRoom}>
               <Text style={styles.endedEventSecondaryText}>Event Settings</Text>
@@ -2051,6 +2055,7 @@ const requestedStreamers = [
             </View>
           )}
 
+          <WildRoomCard roomId={room.id} />
           <RoomMissionCard roomId={room.id} />
 
           {!isDesktop && mobileRoomOverview}

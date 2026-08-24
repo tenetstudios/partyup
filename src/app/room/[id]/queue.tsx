@@ -15,6 +15,7 @@ import {
 import QRCode from "react-native-qrcode-svg";
 import { supabase } from "../../../../lib/supabase";
 import RoomMissionManager from "../../../components/RoomMissionManager";
+import WildHostManager from "../../../components/WildHostManager";
 import RoomChatModerationSettings from "../../../components/RoomChatModerationSettings";
 import ClearRoomParticipantsCard from "../../../components/ClearRoomParticipantsCard";
 import RoomIdleLoopManager from "../../../components/RoomIdleLoopManager";
@@ -801,6 +802,7 @@ async function endEvent() {
       <ScrollView style={styles.page} contentContainerStyle={styles.container}>
         <Text style={styles.heading}>Event Ended</Text>
         <Text style={styles.subheading}>{room.title} is read-only. Memories, recaps, attendance, and series history are retained.</Text>
+        {isHost && <WildHostManager roomId={room.id} roomEnded />}
         <RoomMissionManager roomId={room.id} isHost={isHost} roomEnded />
         <TouchableOpacity style={styles.privacyButton} onPress={() => router.replace(`/room/${room.id}`)}>
           <Text style={styles.buttonText}>Back to Past Event</Text>
@@ -1151,6 +1153,7 @@ async function endEvent() {
                 onToggle={() => toggleSettingsGroup("engagement")}
               >
                 <RoomAnnouncementEditor roomId={room.id} />
+                <WildHostManager roomId={room.id} />
                 <RoomMissionManager roomId={room.id} isHost={isHost} />
               </SettingsGroup>
 

@@ -79,7 +79,7 @@ export default function RoomMissionManager({
     const nextMission = await getActiveRoomMission(supabase, roomId);
     setMission(nextMission);
     setOperations(
-      isHost && nextMission && nextMission.mission_type !== "connection"
+      isHost && nextMission && !["connection", "wild_faction"].includes(nextMission.mission_type)
         ? await getMissionOperationsDashboard(supabase, nextMission.id)
         : null,
     );
@@ -442,7 +442,7 @@ export default function RoomMissionManager({
                 </View>
                 <Text style={styles.historyCount}>{item.completion_count} completed</Text>
               </View>
-              {item.mission_type !== "connection" && <>
+              {!["connection", "wild_faction"].includes(item.mission_type) && <>
                 <TouchableOpacity style={styles.historyResultsButton} onPress={() => void toggleHistoryOperations(item.id)}><Text style={styles.historyResultsText}>{historyOperationsMissionId === item.id ? "Hide Operations" : "View Operations"}</Text></TouchableOpacity>
                 {historyOperationsMissionId === item.id && historyOperations && <MissionOperationsDashboard dashboard={historyOperations} />}
               </>}
