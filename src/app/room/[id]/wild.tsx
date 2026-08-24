@@ -30,6 +30,8 @@ export default function WildScreen() {
   const gameIdRef = useRef<string | null>(null);
   const controllersRef = useRef<Record<string, string | null>>({});
   const loadedRef = useRef(false);
+  const scanLockedRef = useRef(false);
+  const scanUnlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const ensureGuestToken = useCallback(async () => {
     const { data } = await supabase.auth.getUser();
@@ -98,6 +100,10 @@ export default function WildScreen() {
     return () => clearTimeout(timer);
   }, [capture]);
 
+  useEffect(() => () => {
+    if (scanUnlockTimerRef.current) clearTimeout(scanUnlockTimerRef.current);
+  }, []);
+
   const encounterMissionId = state?.mission?.config.verification_type === "encounter" ? state.mission.id : null;
 
   useEffect(() => {
@@ -134,6 +140,8 @@ export default function WildScreen() {
   }
 
   async function openScanner() {
+    if (scanUnlockTimerRef.current) clearTimeout(scanUnlockTimerRef.current);
+    scanLockedRef.current = false;
     setEncounterFeedback(null); setError(null); setScanLocked(false); setTorchEnabled(false);
     if (!permission?.granted) {
       const result = await requestPermission();
@@ -143,20 +151,35 @@ export default function WildScreen() {
   }
 
   function closeEncounterModal() {
+    if (scanUnlockTimerRef.current) clearTimeout(scanUnlockTimerRef.current);
+    scanUnlockTimerRef.current = null;
+    scanLockedRef.current = false;
     setEncounterMode("details"); setScanLocked(false); setTorchEnabled(false); setManualCode("");
   }
 
   async function redeemEncounter(value: string) {
-    if (!state?.mission || !value.trim() || busy || scanLocked) return;
+    if (!state?.mission || !value.trim() || scanLockedRef.current) return;
+    scanLockedRef.current = true;
+    let shouldUnlock = true;
     setBusy(true); setScanLocked(true); setError(null); setEncounterFeedback(null);
     try {
       const token = await ensureGuestToken();
       const result = await redeemWildEncounterToken(supabase, state.mission.id, value.trim(), token);
+      shouldUnlock = result.status !== "valid" && result.status !== "duplicate";
       setEncounterFeedback(encounterMessages[result.status]);
       setManualCode("");
       await load(token);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not verify this encounter."); }
-    finally { setBusy(false); setTimeout(() => setScanLocked(false), 1200); }
+    finally {
+      setBusy(false);
+      if (shouldUnlock) {
+        scanUnlockTimerRef.current = setTimeout(() => {
+          scanLockedRef.current = false;
+          scanUnlockTimerRef.current = null;
+          setScanLocked(false);
+        }, 1200);
+      }
+    }
   }
 
   const factions = state?.game?.config.factions ?? [];
