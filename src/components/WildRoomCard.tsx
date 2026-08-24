@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
@@ -5,14 +6,28 @@ import { supabase } from "../../lib/supabase";
 import { enterWildGame, getWildRoomState, type WildRoomState } from "../../lib/wild";
 import { createGuestSession, readStoredGuestSession } from "../lib/matchmaking";
 
+const dismissedResultStorageKey = (gameId: string) => `partyup_wild_result_dismissed:${gameId}`;
+
 export default function WildRoomCard({ roomId }: { roomId: string }) {
   const [state, setState] = useState<WildRoomState | null>(null);
+  const [dismissedResultGameId, setDismissedResultGameId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const guestToken = (await readStoredGuestSession())?.guestToken ?? null;
-    setState(await getWildRoomState(supabase, roomId, guestToken));
+    const nextState = await getWildRoomState(supabase, roomId, guestToken);
+    let dismissedGameId: string | null = null;
+    if (nextState.game?.status === "ended") {
+      try {
+        const dismissed = await AsyncStorage.getItem(dismissedResultStorageKey(nextState.game.id));
+        if (dismissed === "1") dismissedGameId = nextState.game.id;
+      } catch {
+        // A storage failure should not prevent the current Wild state from loading.
+      }
+    }
+    setDismissedResultGameId(dismissedGameId);
+    setState(nextState);
   }, [roomId]);
 
   useEffect(() => {
@@ -54,8 +69,25 @@ export default function WildRoomCard({ roomId }: { roomId: string }) {
     finally { setBusy(false); }
   }
 
+  function dismissFinalResult() {
+    const gameId = state?.game?.id;
+    if (!gameId) return;
+    setDismissedResultGameId(gameId);
+    void AsyncStorage.setItem(dismissedResultStorageKey(gameId), "1").catch(() => undefined);
+  }
+
   if (state.game.status === "ended") {
+    if (dismissedResultGameId === state.game.id) return null;
     return <View style={[styles.card, styles.endedCard, assignmentWon && styles.winnerCard]}>
+      <TouchableOpacity
+        accessibilityLabel="Dismiss Into the Wild final result"
+        accessibilityRole="button"
+        hitSlop={8}
+        onPress={dismissFinalResult}
+        style={styles.dismissButton}
+      >
+        <Text style={styles.dismissText}>×</Text>
+      </TouchableOpacity>
       <Text style={[styles.eyebrow, assignmentWon && styles.winnerEyebrow]}>{assignmentWon ? "YOUR FACTION WON" : "INTO THE WILD"}</Text>
       <Text style={styles.title}>{assignmentWon && state.assignment ? `${state.assignment.emoji} ${state.assignment.label.toUpperCase()} WON THE WILD` : "THE WILD HAS ENDED"}</Text>
       {state.assignment ? <Text style={styles.copy}>
@@ -86,5 +118,7 @@ const styles = StyleSheet.create({
   button: { alignItems: "center", alignSelf: "flex-start", backgroundColor: "#C026D3", borderRadius: 9, marginTop: 13, minHeight: 44, justifyContent: "center", paddingHorizontal: 18 },
   endedButton: { alignSelf: "stretch", minHeight: 48 },
   buttonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "900" },
+  dismissButton: { alignItems: "center", height: 44, justifyContent: "center", position: "absolute", right: 4, top: 4, width: 44, zIndex: 1 },
+  dismissText: { color: "#D4D4D8", fontSize: 28, fontWeight: "500", lineHeight: 30 },
   error: { color: "#FDA4AF", fontSize: 12, fontWeight: "700", marginTop: 10 },
 });
