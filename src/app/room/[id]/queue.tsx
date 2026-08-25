@@ -58,6 +58,16 @@ type UserRow = {
   created_at?: string;
 };
 
+type StreamQueueEntry = {
+  id: string;
+  room_id: string;
+  user_id: string;
+  status: "waiting" | "live" | "ended" | "removed";
+  priority: number;
+  approved_at: string;
+  started_at: string | null;
+};
+
 type ActiveAnnouncement = {
   id: string;
   title: string;
@@ -333,12 +343,14 @@ export default function ManageRoomPage() {
   const [room, setRoom] = useState<Room | null>(null);
   const [queue, setQueue] = useState<UserRow[]>([]);
   const [participants, setParticipants] = useState<UserRow[]>([]);
+  const [streamQueue, setStreamQueue] = useState<StreamQueueEntry[]>([]);
+  const [streamQueueBusyUserId, setStreamQueueBusyUserId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState("");
   const [myRole, setMyRole] = useState<string | null>(null);
   const [roomDeleted, setRoomDeleted] = useState(false);
   const [afterEventMessage, setAfterEventMessage] = useState("");
   const [closeoutBusy, setCloseoutBusy] = useState(false);
-  const [openSettingsGroup, setOpenSettingsGroup] = useState<SettingsGroupKey | null>("experience");
+  const [openSettingsGroup, setOpenSettingsGroup] = useState<SettingsGroupKey | null>(null);
 
   const toggleSettingsGroup = (group: SettingsGroupKey) => {
     setOpenSettingsGroup((current) => (current === group ? null : group));
@@ -360,6 +372,20 @@ export default function ManageRoomPage() {
       schema: "public",
       table: "event_attendees",
       filter: `event_room_id=eq.${roomId}`,
+    },
+    () => {
+      if (roomDeleted) return;
+      loadAll();
+    }
+  );
+
+  channel.on(
+    "postgres_changes",
+    {
+      event: "*",
+      schema: "public",
+      table: "room_stream_queue",
+      filter: `room_id=eq.${roomId}`,
     },
     () => {
       if (roomDeleted) return;
@@ -394,6 +420,7 @@ export default function ManageRoomPage() {
     await loadRoom();
     await loadQueue();
     await loadParticipants();
+    await loadStreamQueue();
   }
 
   async function loadCurrentUser() {
@@ -462,6 +489,82 @@ export default function ManageRoomPage() {
       .order("created_at", { ascending: true });
 
     setParticipants(data || []);
+  }
+
+  async function loadStreamQueue() {
+    const { data, error } = await supabase
+      .from("room_stream_queue")
+      .select("id,room_id,user_id,status,priority,approved_at,started_at")
+      .eq("room_id", roomId)
+      .in("status", ["waiting", "live"])
+      .order("priority", { ascending: true });
+
+    if (error) {
+      console.log("STREAM QUEUE LOAD ERROR:", error.message);
+      return;
+    }
+
+    setStreamQueue((data || []) as StreamQueueEntry[]);
+  }
+
+  async function runStreamQueueAction(
+    userId: string,
+    rpcName: string,
+    params: Record<string, string>,
+  ) {
+    if (streamQueueBusyUserId) return;
+    setStreamQueueBusyUserId(userId);
+
+    try {
+      const { error } = await supabase.rpc(rpcName, params);
+      if (error) Alert.alert("Could not update the broadcast queue", error.message);
+      await loadAll();
+    } finally {
+      setStreamQueueBusyUserId(null);
+    }
+  }
+
+  function approveStreamQueueEntry(userId: string) {
+    return runStreamQueueAction(userId, "approve_room_stream", {
+      p_room_id: roomId,
+      p_user_id: userId,
+    });
+  }
+
+  function startStreamQueueEntry(userId: string) {
+    return runStreamQueueAction(userId, "start_room_stream", {
+      p_room_id: roomId,
+      p_user_id: userId,
+    });
+  }
+
+  function moveStreamQueueEntry(userId: string, direction: "up" | "down") {
+    return runStreamQueueAction(userId, "move_room_stream_queue_entry", {
+      p_direction: direction,
+      p_room_id: roomId,
+      p_user_id: userId,
+    });
+  }
+
+  function removeStreamQueueEntry(userId: string) {
+    return runStreamQueueAction(userId, "remove_room_stream_queue_entry", {
+      p_room_id: roomId,
+      p_user_id: userId,
+    });
+  }
+
+  function endStreamQueueEntry(userId: string) {
+    Alert.alert("End broadcast?", "End this broadcast and return the main feed to standby?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "End broadcast",
+        style: "destructive",
+        onPress: () => void runStreamQueueAction(userId, "end_room_stream", {
+          p_room_id: roomId,
+          p_user_id: userId,
+        }),
+      },
+    ]);
   }
 
   const isHost = room?.host_id === currentUserId;
@@ -830,6 +933,16 @@ async function endEvent() {
     (user) => user.stream_status === "requested"
   );
 
+  const participantByUserId = new Map(participants.map((user) => [user.user_id, user]));
+  const currentBroadcast = streamQueue.find((entry) => entry.status === "live");
+  const waitingToBroadcast = streamQueue
+    .filter((entry) => entry.status === "waiting")
+    .sort((left, right) => left.priority - right.priority);
+  const activeBroadcastUserIds = new Set(streamQueue.map((entry) => entry.user_id));
+  const availableBroadcasters = participants.filter(
+    (user) => !activeBroadcastUserIds.has(user.user_id),
+  );
+
   const bouncers = participants.filter(
     (user) => user.room_role === "bouncer" || user.room_role === "admin"
   );
@@ -1126,10 +1239,103 @@ async function endEvent() {
             <>
               <SettingsGroup
                 title="Room & broadcast"
-                subtitle="Room details, guest access, and what plays between live streams."
+                subtitle="Live broadcast queue, room details, guest access, and standby media."
                 expanded={openSettingsGroup === "experience"}
                 onToggle={() => toggleSettingsGroup("experience")}
               >
+                <View style={styles.settingsSubsection}>
+                  <Text style={styles.settingsEyebrow}>LIVE BROADCAST QUEUE</Text>
+                  <Text style={styles.name}>Current stream</Text>
+                  {currentBroadcast ? (
+                    <View style={styles.card}>
+                      <Text style={styles.name}>
+                        {participantByUserId.get(currentBroadcast.user_id)?.username || "Guest"}
+                      </Text>
+                      <Text style={styles.meta}>Has control of the main feed</Text>
+                      <TouchableOpacity
+                        style={styles.rejectButton}
+                        disabled={Boolean(streamQueueBusyUserId)}
+                        onPress={() => endStreamQueueEntry(currentBroadcast.user_id)}
+                      >
+                        <Text style={styles.buttonText}>
+                          {streamQueueBusyUserId === currentBroadcast.user_id ? "Ending..." : "End Broadcast"}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <Text style={styles.empty}>The main feed is on standby.</Text>
+                  )}
+
+                  <Text style={styles.broadcastQueueHeading}>
+                    Waiting to stream · {waitingToBroadcast.length}
+                  </Text>
+                  {waitingToBroadcast.length === 0 ? (
+                    <Text style={styles.empty}>Approve a member&apos;s stream to add them here.</Text>
+                  ) : (
+                    waitingToBroadcast.map((entry, index) => (
+                      <View key={entry.id} style={styles.card}>
+                        <Text style={styles.rank}>#{index + 1}</Text>
+                        <Text style={styles.name}>
+                          {participantByUserId.get(entry.user_id)?.username || "Guest"}
+                        </Text>
+                        <Text style={styles.meta}>Approved and waiting</Text>
+                        <View style={styles.actions}>
+                          <TouchableOpacity
+                            style={styles.secondaryPillButton}
+                            disabled={index === 0 || Boolean(streamQueueBusyUserId)}
+                            onPress={() => void moveStreamQueueEntry(entry.user_id, "up")}
+                          >
+                            <Text style={styles.secondaryPillText}>Move Up</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.secondaryPillButton}
+                            disabled={index === waitingToBroadcast.length - 1 || Boolean(streamQueueBusyUserId)}
+                            onPress={() => void moveStreamQueueEntry(entry.user_id, "down")}
+                          >
+                            <Text style={styles.secondaryPillText}>Move Down</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.acceptButton}
+                            disabled={Boolean(streamQueueBusyUserId)}
+                            onPress={() => void startStreamQueueEntry(entry.user_id)}
+                          >
+                            <Text style={styles.buttonText}>
+                              {streamQueueBusyUserId === entry.user_id ? "Starting..." : "Start Broadcast"}
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.rejectButton}
+                            disabled={Boolean(streamQueueBusyUserId)}
+                            onPress={() => void removeStreamQueueEntry(entry.user_id)}
+                          >
+                            <Text style={styles.buttonText}>Remove</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ))
+                  )}
+
+                  <Text style={styles.broadcastQueueHeading}>Approved members</Text>
+                  {availableBroadcasters.length === 0 ? (
+                    <Text style={styles.empty}>Every approved member is already in the stream queue.</Text>
+                  ) : (
+                    availableBroadcasters.map((user) => (
+                      <View key={user.id} style={styles.card}>
+                        <Text style={styles.name}>{user.username || "Guest"}</Text>
+                        <TouchableOpacity
+                          style={styles.purplePillButton}
+                          disabled={Boolean(streamQueueBusyUserId)}
+                          onPress={() => void approveStreamQueueEntry(user.user_id)}
+                        >
+                          <Text style={styles.buttonText}>
+                            {streamQueueBusyUserId === user.user_id ? "Approving..." : "Approve Stream"}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))
+                  )}
+                </View>
+                <View style={styles.settingsDivider} />
                 <RoomDescriptionEditor roomId={room.id} embedded />
                 <View style={styles.settingsDivider} />
                 <View style={styles.settingsSubsection}>
@@ -1377,6 +1583,15 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     letterSpacing: 1,
     marginBottom: 7,
+  },
+  broadcastQueueHeading: {
+    color: "#C4B5FD",
+    fontSize: 13,
+    fontWeight: "900",
+    letterSpacing: 0.6,
+    marginBottom: 12,
+    marginTop: 22,
+    textTransform: "uppercase",
   },
   embeddedSection: {
     backgroundColor: "transparent",
