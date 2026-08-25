@@ -2459,7 +2459,7 @@ const requestedStreamers = [
     style={styles.bottomRoomSettingsButton}
     onPress={openManageRoom}
   >
-    <Ionicons name="settings-outline" size={20} color="#D9D5E8" />
+    <Ionicons name="settings-outline" size={22} color="#EDE9FE" />
     <Text style={styles.roomSettingsText}>Room Settings</Text>
   </TouchableOpacity>
 )}
@@ -2883,19 +2883,27 @@ const styles = StyleSheet.create({
   bottomRoomSettingsButton: {
     alignItems: "center",
     alignSelf: "center",
-    backgroundColor: "rgba(28, 26, 42, 0.94)",
-    borderColor: "rgba(255,255,255,0.1)",
-    borderRadius: 999,
+    backgroundColor: "rgba(124,58,237,0.28)",
+    borderColor: "rgba(168,85,247,0.68)",
+    borderRadius: 18,
     borderWidth: 1,
+    elevation: 4,
     flexDirection: "row",
     gap: 10,
+    justifyContent: "center",
     marginTop: 20,
-    minHeight: 48,
-    paddingHorizontal: 18,
+    maxWidth: 440,
+    minHeight: 60,
+    paddingHorizontal: 22,
+    shadowColor: "#7C3AED",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.28,
+    shadowRadius: 12,
+    width: "100%",
   },
   roomSettingsText: {
-    color: "#E5E1ED",
-    fontSize: 15,
+    color: "#EDE9FE",
+    fontSize: 17,
     fontWeight: "900",
   },
   mobileLiveDock: {

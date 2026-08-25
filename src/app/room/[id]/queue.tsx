@@ -21,7 +21,6 @@ import RoomChatModerationSettings from "../../../components/RoomChatModerationSe
 import ClearRoomParticipantsCard from "../../../components/ClearRoomParticipantsCard";
 import RoomIdleLoopManager from "../../../components/RoomIdleLoopManager";
 
-type Tab = "queue" | "inside" | "streams" | "bouncers" | "settings";
 type SettingsGroupKey = "experience" | "engagement" | "moderation" | "closeout";
 
 const posterSource = require("../../../../assets/images/partyup-room-poster.png");
@@ -55,6 +54,7 @@ type UserRow = {
   can_stream?: boolean | null;
   is_muted?: boolean | null;
   queue_score?: number | null;
+  reputation_given?: boolean | null;
   created_at?: string;
 };
 
@@ -339,7 +339,6 @@ export default function ManageRoomPage() {
   const { id } = useLocalSearchParams();
   const roomId = String(id);
 
-  const [activeTab, setActiveTab] = useState<Tab>("queue");
   const [room, setRoom] = useState<Room | null>(null);
   const [queue, setQueue] = useState<UserRow[]>([]);
   const [participants, setParticipants] = useState<UserRow[]>([]);
@@ -663,46 +662,6 @@ export default function ManageRoomPage() {
     loadAll();
   }
 
-  async function approveStreamer(user: UserRow) {
-    await supabase
-      .from("event_attendees")
-      .update({
-        can_stream: true,
-        stream_status: "live",
-      })
-      .eq("id", user.id);
-
-    loadAll();
-  }
-
-  async function stopStreamer(user: UserRow) {
-  Alert.alert(
-    "Stop stream?",
-    "Stop this livestream?",
-    [
-      {
-        text: "Cancel",
-        style: "cancel",
-      },
-      {
-        text: "Stop",
-        style: "destructive",
-        onPress: async () => {
-          await supabase
-            .from("event_attendees")
-            .update({
-              can_stream: false,
-              stream_status: "off",
-            })
-            .eq("id", user.id);
-
-          loadAll();
-        },
-      },
-    ]
-  );
-}
-
 async function giveReputation(userId: string) {
   if (!room) return;
 
@@ -929,10 +888,6 @@ async function endEvent() {
     );
   }
 
-  const streamRequests = [...queue, ...participants].filter(
-    (user) => user.stream_status === "requested"
-  );
-
   const participantByUserId = new Map(participants.map((user) => [user.user_id, user]));
   const currentBroadcast = streamQueue.find((entry) => entry.status === "live");
   const waitingToBroadcast = streamQueue
@@ -951,303 +906,16 @@ async function endEvent() {
     <ScrollView style={styles.page} contentContainerStyle={styles.container}>
 
       <Text style={styles.heading}>Room Settings</Text>
-      <Text style={styles.subheading}>Queue / Stream Requests for {room.title}</Text>
+      <Text style={styles.subheading}>Host tools and live operations for {room.title}</Text>
 
-      <View style={styles.statsRow}>
-  <View style={styles.statCard}>
-    <Text style={styles.statValue}>
-      {participants.length}
-    </Text>
-    <Text style={styles.statLabel}>Inside</Text>
-  </View>
-
-  <View style={styles.statCard}>
-    <Text style={styles.statValue}>
-      {queue.length}
-    </Text>
-    <Text style={styles.statLabel}>Queue</Text>
-  </View>
-
-  <View style={styles.statCard}>
-    <Text style={styles.statValue}>
-      {
-        participants.filter((u) => u.can_stream)
-          .length
-      }
-    </Text>
-    <Text style={styles.statLabel}>Live</Text>
-  </View>
-
-  <View style={styles.statCard}>
-    <Text style={styles.statValue}>
-      {streamRequests.length}
-    </Text>
-    <Text style={styles.statLabel}>Requests</Text>
-  </View>
-</View>
-
-      <View style={styles.tabs}>
-        {(["queue", "inside", "streams", "bouncers", "settings"] as Tab[]).map(
-          (tab) => (
-            <TouchableOpacity
-              key={tab}
-              style={[
-                styles.tab,
-                tab === "settings" && styles.settingsTab,
-                activeTab === tab && styles.tabActive,
-              ]}
-              onPress={() => setActiveTab(tab)}
-            >
-              <Text
-                style={[
-                  styles.tabText,
-                  tab === "settings" && styles.settingsTabText,
-                  activeTab === tab && styles.tabTextActive,
-                ]}
-              >
-                {tab === "queue"
-                  ? "Queue"
-                  : tab === "inside"
-                  ? "Inside"
-                  : tab === "streams"
-                  ? "Requests"
-                  : tab === "bouncers"
-                  ? "Bouncers"
-                  : "Settings"}
-              </Text>
-            </TouchableOpacity>
-          )
-        )}
-      </View>
-
-      {activeTab === "queue" && (
-        <View>
-          <Text style={styles.sectionTitle}>Queue / Stream Requests</Text>
-
-          {queue.length === 0 ? (
-            <Text style={styles.empty}>No one is waiting.</Text>
-          ) : (
-            queue.map((user, index) => (
-              <View key={user.id} style={styles.card}>
-                <Text style={styles.rank}>#{index + 1}</Text>
-                <Text style={styles.name}>{user.username || "Guest"}</Text>
-                <Text style={styles.meta}>Score: {user.queue_score ?? 50}</Text>
-
-                <View style={styles.actions}>
-                  <TouchableOpacity
-                    style={styles.acceptButton}
-                    onPress={() => acceptUser(user)}
-                  >
-                    <Text style={styles.buttonText}>Accept</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.rejectButton}
-                    onPress={() => rejectUser(user)}
-                  >
-                    <Text style={styles.buttonText}>Reject</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ))
-          )}
-        </View>
-      )}
-
-      {activeTab === "inside" && (
-  <View>
-    <Text style={styles.sectionTitle}>Inside Room</Text>
-
-    {participants.length === 0 ? (
-      <Text style={styles.empty}>No one inside yet.</Text>
-    ) : (
-      participants.map((user) => (
-        <View key={user.id} style={styles.card}>
-          <Text style={styles.name}>{user.username || "Guest"}</Text>
-
-          <View style={{ flexDirection: "row", gap: 8, marginTop: 5 }}>
-            <Text style={styles.meta}>
-              {user.user_id === room.host_id
-                ? "Host"
-                : user.room_role === "bouncer"
-                ? "Bouncer"
-                : "Guest"}
-            </Text>
-
-            {user.can_stream && (
-              <View style={styles.liveBadge}>
-                <Text style={styles.liveBadgeText}>LIVE</Text>
-              </View>
-            )}
-
-            {user.is_muted && (
-              <View style={styles.mutedBadge}>
-                <Text style={styles.liveBadgeText}>MUTED</Text>
-              </View>
-            )}
-          </View>
-
-          {user.stream_status && (
-  <Text style={styles.meta}>
-    Stream: {user.stream_status}
-  </Text>
-)}
-
-          {user.user_id !== room.host_id &&
-            user.user_id !== currentUserId && (
-              <View style={styles.actions}>
-                <TouchableOpacity
-                  style={styles.rejectButton}
-                  onPress={() => toggleMute(user)}
-                >
-                  <Text style={styles.buttonText}>
-                    {user.is_muted ? "Unmute" : "Mute"}
-                  </Text>
-                </TouchableOpacity>
-
-                {user.stream_status === "requested" && (
-                  <TouchableOpacity
-                    style={styles.acceptButton}
-                    onPress={() => approveStreamer(user)}
-                  >
-                    <Text style={styles.buttonText}>Approve Live</Text>
-                  </TouchableOpacity>
-                )}
-
-                {user.can_stream && (
-                  <TouchableOpacity
-                    style={styles.rejectButton}
-                    onPress={() => stopStreamer(user)}
-                  >
-                    <Text style={styles.buttonText}>Stop Live</Text>
-                  </TouchableOpacity>
-                )}
-
-                <TouchableOpacity
-  style={styles.repButton}
-  onPress={() => giveReputation(user.user_id)}
->
-  <Text style={styles.buttonText}>👍 Rep</Text>
-</TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.kickButton}
-                  onPress={() => kickUser(user)}
-                >
-                  <Text style={styles.buttonText}>Kick</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-        </View>
-      ))
-    )}
-  </View>
-)}
-
-      {activeTab === "streams" && (
-        <View>
-          <Text style={styles.sectionTitle}>Stream Requests</Text>
-
-          {streamRequests.length === 0 ? (
-            <Text style={styles.empty}>No stream requests.</Text>
-          ) : (
-            streamRequests.map((user) => (
-              <View key={user.id} style={styles.card}>
-                <Text style={styles.name}>{user.username || "Guest"}</Text>
-                <Text style={styles.meta}>Requested to go live</Text>
-
-                <View style={styles.actions}>
-                  <TouchableOpacity
-                    style={styles.acceptButton}
-                    onPress={() => approveStreamer(user)}
-                  >
-                    <Text style={styles.buttonText}>Approve</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.rejectButton}
-                    onPress={() => stopStreamer(user)}
-                  >
-                    <Text style={styles.buttonText}>Deny</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ))
-          )}
-
-          <Text style={styles.sectionTitle}>Currently Live</Text>
-
-          {participants
-            .filter((user) => user.can_stream)
-            .map((user) => (
-              <View key={user.id} style={styles.card}>
-                <Text style={styles.name}>{user.username || "Guest"}</Text>
-
-                <TouchableOpacity
-                  style={styles.rejectButton}
-                  onPress={() => stopStreamer(user)}
-                >
-                  <Text style={styles.buttonText}>Stop Stream</Text>
-                </TouchableOpacity>
-              </View>
-            ))}
-        </View>
-      )}
-
-      {activeTab === "bouncers" && (
-        <View>
-          <Text style={styles.sectionTitle}>Bouncers</Text>
-
-          {bouncers.length === 0 ? (
-            <Text style={styles.empty}>No bouncers yet.</Text>
-          ) : (
-            bouncers.map((user) => (
-              <View key={user.id} style={styles.card}>
-                <Text style={styles.name}>{user.username || "Guest"}</Text>
-                <Text style={styles.meta}>{user.room_role}</Text>
-              </View>
-            ))
-          )}
-
-          {isHost && (
-            <>
-              <Text style={styles.sectionTitle}>Make Bouncer</Text>
-
-              {participants
-                .filter((user) => user.user_id !== room.host_id)
-                .map((user) => (
-                  <View key={user.id} style={styles.card}>
-                    <Text style={styles.name}>{user.username || "Guest"}</Text>
-
-                    <TouchableOpacity
-                      style={styles.acceptButton}
-                      onPress={() => toggleBouncer(user)}
-                    >
-                      <Text style={styles.buttonText}>
-                        {user.room_role === "bouncer"
-                          ? "Remove Bouncer"
-                          : "Make Bouncer"}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                ))}
-            </>
-          )}
-        </View>
-      )}
-
-      {activeTab === "settings" && (
-        <View>
-          <Text style={styles.sectionTitle}>Room Settings</Text>
-
-          {isHost ? (
-            <>
-              <SettingsGroup
+      <SettingsGroup
                 title="Room & broadcast"
                 subtitle="Live broadcast queue, room details, guest access, and standby media."
                 expanded={openSettingsGroup === "experience"}
                 onToggle={() => toggleSettingsGroup("experience")}
               >
+                {isHost && (
+                  <>
                 <View style={styles.settingsSubsection}>
                   <Text style={styles.settingsEyebrow}>LIVE BROADCAST QUEUE</Text>
                   <Text style={styles.name}>Current stream</Text>
@@ -1343,32 +1011,61 @@ async function endEvent() {
                 <View style={styles.settingsDivider} />
                 <RoomDescriptionEditor roomId={room.id} embedded />
                 <View style={styles.settingsDivider} />
+                  </>
+                )}
                 <View style={styles.settingsSubsection}>
                   <Text style={styles.name}>Guest access</Text>
                   <Text style={styles.meta}>
                     This room is currently {room.is_private ? "private" : "public"}.
                   </Text>
-                  <TouchableOpacity style={styles.privacyButton} onPress={toggleRoomPrivacy}>
-                    <Text style={styles.buttonText}>
-                      {room.is_private ? "Make Room Public" : "Make Room Private"}
-                    </Text>
-                  </TouchableOpacity>
+                  {isHost && (
+                    <TouchableOpacity style={styles.privacyButton} onPress={toggleRoomPrivacy}>
+                      <Text style={styles.buttonText}>
+                        {room.is_private ? "Make Room Public" : "Make Room Private"}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+
+                  <Text style={styles.broadcastQueueHeading}>Entry queue · {queue.length}</Text>
+                  {queue.length === 0 ? (
+                    <Text style={styles.empty}>No one is waiting for room access.</Text>
+                  ) : (
+                    queue.map((user, index) => (
+                      <View key={user.id} style={styles.card}>
+                        <Text style={styles.rank}>#{index + 1}</Text>
+                        <Text style={styles.name}>{user.username || "Guest"}</Text>
+                        <Text style={styles.meta}>Queue score: {user.queue_score ?? 50}</Text>
+                        <View style={styles.actions}>
+                          <TouchableOpacity style={styles.acceptButton} onPress={() => acceptUser(user)}>
+                            <Text style={styles.buttonText}>Accept</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity style={styles.rejectButton} onPress={() => rejectUser(user)}>
+                            <Text style={styles.buttonText}>Reject</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ))
+                  )}
                 </View>
-                <View style={styles.settingsDivider} />
-                <RoomEntryQrCard roomId={room.id} roomTitle={room.title} embedded />
-                <View style={styles.settingsDivider} />
-                <RoomIdleLoopManager roomId={room.id} embedded />
-                <View style={styles.settingsDivider} />
-                <View style={styles.settingsSubsection}>
-                  <Text style={styles.settingsEyebrow}>EXTERNAL STREAMING</Text>
-                  <Text style={styles.name}>Broadcast with OBS</Text>
-                  <Text style={styles.meta}>
-                    Create or view the server URL and stream key for this room.
-                  </Text>
-                  <TouchableOpacity style={styles.obsButton} onPress={startOBSStream}>
-                    <Text style={styles.buttonText}>Get OBS Credentials</Text>
-                  </TouchableOpacity>
-                </View>
+                {isHost && (
+                  <>
+                    <View style={styles.settingsDivider} />
+                    <RoomEntryQrCard roomId={room.id} roomTitle={room.title} embedded />
+                    <View style={styles.settingsDivider} />
+                    <RoomIdleLoopManager roomId={room.id} embedded />
+                    <View style={styles.settingsDivider} />
+                    <View style={styles.settingsSubsection}>
+                      <Text style={styles.settingsEyebrow}>EXTERNAL STREAMING</Text>
+                      <Text style={styles.name}>Broadcast with OBS</Text>
+                      <Text style={styles.meta}>
+                        Create or view the server URL and stream key for this room.
+                      </Text>
+                      <TouchableOpacity style={styles.obsButton} onPress={startOBSStream}>
+                        <Text style={styles.buttonText}>Get OBS Credentials</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                )}
               </SettingsGroup>
 
               <SettingsGroup
@@ -1377,23 +1074,108 @@ async function endEvent() {
                 expanded={openSettingsGroup === "engagement"}
                 onToggle={() => toggleSettingsGroup("engagement")}
               >
-                <RoomAnnouncementEditor roomId={room.id} />
-                <WildHostManager roomId={room.id} />
-                <RoomMissionManager roomId={room.id} isHost={isHost} />
+                {isHost ? (
+                  <>
+                    <RoomAnnouncementEditor roomId={room.id} />
+                    <WildHostManager roomId={room.id} />
+                    <RoomMissionManager roomId={room.id} isHost />
+                  </>
+                ) : (
+                  <RoomMissionManager roomId={room.id} isHost={false} />
+                )}
               </SettingsGroup>
 
               <SettingsGroup
                 title="Safety & access"
-                subtitle="Chat controls and participant cleanup."
+                subtitle="Bouncers, participant controls, chat safety, and cleanup."
                 expanded={openSettingsGroup === "moderation"}
                 onToggle={() => toggleSettingsGroup("moderation")}
               >
-                <RoomChatModerationSettings roomId={room.id} />
-                <ClearRoomParticipantsCard
-                  hostId={room.host_id}
-                  onCleared={loadAll}
-                  roomId={room.id}
-                />
+                <View style={styles.settingsSubsection}>
+                  <Text style={styles.settingsEyebrow}>BOUNCERS</Text>
+                  {bouncers.length === 0 ? (
+                    <Text style={styles.empty}>No bouncers assigned.</Text>
+                  ) : (
+                    bouncers.map((user) => (
+                      <View key={user.id} style={styles.card}>
+                        <Text style={styles.name}>{user.username || "Guest"}</Text>
+                        <Text style={styles.meta}>Can help manage room access and participants</Text>
+                      </View>
+                    ))
+                  )}
+
+                  {isHost && (
+                    <>
+                      <Text style={styles.broadcastQueueHeading}>Manage bouncers</Text>
+                      {participants
+                        .filter((user) => user.user_id !== room.host_id)
+                        .map((user) => (
+                          <View key={user.id} style={styles.card}>
+                            <Text style={styles.name}>{user.username || "Guest"}</Text>
+                            <TouchableOpacity style={styles.acceptButton} onPress={() => toggleBouncer(user)}>
+                              <Text style={styles.buttonText}>
+                                {user.room_role === "bouncer" ? "Remove Bouncer" : "Make Bouncer"}
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        ))}
+                    </>
+                  )}
+                </View>
+
+                <View style={styles.settingsDivider} />
+                <View style={styles.settingsSubsection}>
+                  <Text style={styles.settingsEyebrow}>PEOPLE INSIDE</Text>
+                  {participants.length === 0 ? (
+                    <Text style={styles.empty}>No one is inside yet.</Text>
+                  ) : (
+                    participants.map((user) => (
+                      <View key={user.id} style={styles.card}>
+                        <Text style={styles.name}>{user.username || "Guest"}</Text>
+                        <Text style={styles.meta}>
+                          {user.user_id === room.host_id
+                            ? "Host"
+                            : user.room_role === "bouncer" || user.room_role === "admin"
+                              ? "Bouncer"
+                              : "Guest"}
+                          {user.is_muted ? " · Muted" : ""}
+                        </Text>
+
+                        {user.user_id !== room.host_id && user.user_id !== currentUserId && (
+                          <View style={styles.actions}>
+                            <TouchableOpacity style={styles.rejectButton} onPress={() => toggleMute(user)}>
+                              <Text style={styles.buttonText}>{user.is_muted ? "Unmute" : "Mute"}</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={styles.repButton}
+                              disabled={Boolean(user.reputation_given)}
+                              onPress={() => giveReputation(user.user_id)}
+                            >
+                              <Text style={styles.buttonText}>
+                                {user.reputation_given ? "Rep Given" : "Give +2 Rep"}
+                              </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={styles.kickButton} onPress={() => kickUser(user)}>
+                              <Text style={styles.buttonText}>Kick</Text>
+                            </TouchableOpacity>
+                          </View>
+                        )}
+                      </View>
+                    ))
+                  )}
+                </View>
+
+                {isHost && (
+                  <>
+                    <View style={styles.settingsDivider} />
+                    <RoomChatModerationSettings roomId={room.id} />
+                    <ClearRoomParticipantsCard
+                      hostId={room.host_id}
+                      onCleared={loadAll}
+                      roomId={room.id}
+                    />
+                  </>
+                )}
               </SettingsGroup>
 
               <SettingsGroup
@@ -1402,6 +1184,8 @@ async function endEvent() {
                 expanded={openSettingsGroup === "closeout"}
                 onToggle={() => toggleSettingsGroup("closeout")}
               >
+                {isHost ? (
+                  <>
                 {room.status !== "ended" ? (
                   <View style={styles.closeoutSection}>
                     <Text style={styles.closeoutEyebrow}>FINAL STEP</Text>
@@ -1430,20 +1214,14 @@ async function endEvent() {
                 <TouchableOpacity style={styles.deleteButton} onPress={deleteRoom}>
                   <Text style={styles.buttonText}>Delete Room</Text>
                 </TouchableOpacity>
+                  </>
+                ) : (
+                  <View style={styles.settingsSubsection}>
+                    <Text style={styles.name}>Host-only controls</Text>
+                    <Text style={styles.meta}>Only the room host can end or delete this event.</Text>
+                  </View>
+                )}
               </SettingsGroup>
-            </>
-          ) : (
-            <SettingsGroup
-              title="Room activity"
-              subtitle="View the activities configured by the host."
-              expanded={openSettingsGroup === "engagement"}
-              onToggle={() => toggleSettingsGroup("engagement")}
-            >
-              <RoomMissionManager roomId={room.id} isHost={false} />
-            </SettingsGroup>
-          )}
-        </View>
-      )}
       
        <TouchableOpacity onPress={() => router.push(`/room/${room.id}`)}>
         <Text style={styles.back}>← Back to Room</Text>
@@ -1488,68 +1266,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     marginTop: 6,
     marginBottom: 22,
-  },
-
-  tabs: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    marginBottom: 24,
-  },
-
-  tab: {
-    backgroundColor: "#151220",
-    borderRadius: 999,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.06)",
-  },
-
-  tabActive: {
-    backgroundColor: "#7C3AED",
-    borderColor: "#A855F7",
-  },
-
-  settingsTab: {
-    alignItems: "center",
-    alignSelf: "center",
-    backgroundColor: "rgba(124,58,237,0.22)",
-    borderColor: "rgba(168,85,247,0.65)",
-    borderRadius: 18,
-    elevation: 4,
-    justifyContent: "center",
-    marginTop: 4,
-    minHeight: 58,
-    shadowColor: "#7C3AED",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.28,
-    shadowRadius: 12,
-    width: "100%",
-  },
-
-  settingsTabText: {
-    color: "#EDE9FE",
-    fontSize: 17,
-    letterSpacing: 0.3,
-    textAlign: "center",
-  },
-
-  tabText: {
-    color: "#A1A1AA",
-    fontWeight: "900",
-  },
-
-  tabTextActive: {
-    color: "white",
-  },
-
-  sectionTitle: {
-    color: "white",
-    fontSize: 22,
-    fontWeight: "900",
-    marginBottom: 14,
-    marginTop: 8,
   },
 
   settingsGroup: {
@@ -1846,53 +1562,6 @@ const styles = StyleSheet.create({
     color: "white",
     fontWeight: "900",
   },
-  statsRow: {
-  flexDirection: "row",
-  flexWrap: "wrap",
-  gap: 12,
-  marginBottom: 24,
-},
-
-statCard: {
-  flex: 1,
-  minWidth: 120,
-  backgroundColor: "#11101B",
-  borderRadius: 22,
-  padding: 18,
-  borderWidth: 1,
-  borderColor: "rgba(124,58,237,0.18)",
-},
-
-statValue: {
-  color: "white",
-  fontSize: 28,
-  fontWeight: "900",
-},
-
-statLabel: {
-  color: "#A78BFA",
-  fontWeight: "700",
-  marginTop: 6,
-},
-liveBadge: {
-  backgroundColor: "#DC2626",
-  borderRadius: 999,
-  paddingHorizontal: 10,
-  paddingVertical: 4,
-},
-
-mutedBadge: {
-  backgroundColor: "#52525B",
-  borderRadius: 999,
-  paddingHorizontal: 10,
-  paddingVertical: 4,
-},
-
-liveBadgeText: {
-  color: "white",
-  fontSize: 10,
-  fontWeight: "900",
-},
 repButton: {
   backgroundColor: "#22C55E",
   paddingHorizontal: 12,
