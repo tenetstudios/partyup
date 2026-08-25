@@ -1,7 +1,7 @@
 import { router, useLocalSearchParams } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { claimLiveNode, getLiveNodeScanState, type LiveNodeScanState } from "../../../lib/liveNodes";
+import { claimLiveNode, consumeLiveNodeClaimHandoff, getLiveNodeScanState, type LiveNodeScanState } from "../../../lib/liveNodes";
 import { supabase } from "../../../lib/supabase";
 import { createGuestSession, readStoredGuestSession } from "../../lib/matchmaking";
 
@@ -17,20 +17,33 @@ function copyFor(state: LiveNodeScanState) {
 }
 
 export default function LiveNodeScreen() {
-  const { token: rawToken } = useLocalSearchParams<{ token: string }>();
+  const { token: rawToken, handoff: rawHandoff } = useLocalSearchParams<{ token: string; handoff?: string }>();
   const token = String(rawToken ?? "");
+  const handoffToken = typeof rawHandoff === "string" ? rawHandoff : null;
   const [state, setState] = useState<LiveNodeScanState | null>(null);
   const [guestToken, setGuestToken] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const handoffAttemptedRef = useRef(false);
 
   const load = useCallback(async () => {
     const { data } = await supabase.auth.getUser();
     let nextGuestToken = (await readStoredGuestSession())?.guestToken ?? null;
     if (!data.user && !nextGuestToken) nextGuestToken = (await createGuestSession()).guestToken;
     setGuestToken(nextGuestToken);
-    setState(await getLiveNodeScanState(supabase, token, nextGuestToken));
-  }, [token]);
+    if (handoffToken && !handoffAttemptedRef.current) {
+      handoffAttemptedRef.current = true;
+      try {
+        setState(await consumeLiveNodeClaimHandoff(supabase, handoffToken, nextGuestToken));
+        return;
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : "Could not reconnect this browser win to the app.");
+      }
+    }
+    const nextState = await getLiveNodeScanState(supabase, token, nextGuestToken);
+    if (nextState.status === "winner" || nextState.status === "already_claimed_by_you") setError(null);
+    setState(nextState);
+  }, [handoffToken, token]);
 
   useEffect(() => { void load().catch((reason) => setError(reason instanceof Error ? reason.message : "Could not open this Live Node.")); }, [load]);
 
@@ -49,7 +62,7 @@ export default function LiveNodeScreen() {
     {content && <><Text style={[styles.eyebrow, won && styles.winnerEyebrow]}>{content[0]}</Text><Text style={styles.title}>{content[1]}</Text><Text style={styles.body}>{content[2]}</Text>
       {state?.reward_description && <View style={styles.reward}><Text style={styles.rewardLabel}>REWARD</Text><Text style={styles.rewardText}>{state.reward_description}</Text></View>}
       {state?.status === "active" && state.eligible !== false && <TouchableOpacity disabled={busy} onPress={() => void claim()} style={styles.primary}><Text style={styles.primaryText}>{busy ? "Claiming…" : "Claim Live Node"}</Text></TouchableOpacity>}
-      {state?.room_id && <TouchableOpacity onPress={() => router.replace(`/room/${state.room_id}`)} style={styles.secondary}><Text style={styles.secondaryText}>Open Room</Text></TouchableOpacity>}</>}
+      {state?.room_id && <TouchableOpacity onPress={() => router.replace(`/room/${state.room_id}`)} style={styles.secondary}><Text style={styles.secondaryText}>{won ? "Return to Room" : "Open Room"}</Text></TouchableOpacity>}</>}
     {error && <Text style={styles.error}>{error}</Text>}
   </View></SafeAreaView>;
 }

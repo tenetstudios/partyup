@@ -4,6 +4,7 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import QRCode from "react-native-qrcode-svg";
 import { Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { supabase } from "../../lib/supabase";
+import { parseLiveNodeQrToken } from "../../lib/liveNodes";
 import { createGuestSession, readStoredGuestSession } from "../lib/matchmaking";
 import {
   animalDetails,
@@ -216,6 +217,19 @@ export default function RoomMissionCard({ roomId, requestedMissionId }: { roomId
     }
   }
 
+  function openScannedLiveNode(value: string) {
+    if (scanLocked) return;
+    const nodeToken = parseLiveNodeQrToken(value);
+    if (!nodeToken) {
+      setScanLocked(true);
+      setFeedback("That is not a PartyUp Live Node QR.");
+      setTimeout(() => setScanLocked(false), 1200);
+      return;
+    }
+    closeScanner();
+    router.push({ pathname: "/n/[token]", params: { token: nodeToken } });
+  }
+
   async function openScanner() {
     setFeedback(null);
     if (!permission?.granted) {
@@ -310,7 +324,8 @@ export default function RoomMissionCard({ roomId, requestedMissionId }: { roomId
               <View style={styles.connectionContent}>
                 {mission.description ? <Text style={styles.description}>{mission.description}</Text> : null}
                 {mission.config.reward_description ? <View style={styles.completePanel}><Text style={styles.completeCopy}>PHYSICAL REWARD</Text><Text style={styles.completeTitle}>{mission.config.reward_description}</Text></View> : null}
-                <Text style={mission.viewer_completed ? styles.success : styles.memoryRequirement}>{mission.viewer_completed ? "NODE CLAIM VERIFIED ✓" : "Find and scan the physical PartyUp QR. The first valid claim wins."}</Text>
+                <Text style={mission.viewer_completed ? styles.liveNodeWinner : styles.memoryRequirement}>{mission.viewer_completed ? "YOU FOUND THE NODE — YOU WON ✓" : "Find and scan the physical PartyUp QR. The first valid claim wins."}</Text>
+                {!mission.viewer_completed && <TouchableOpacity style={[styles.scanButton, styles.liveNodeScanButton]} disabled={Boolean(remaining?.expired)} onPress={() => void openScanner()}><Text style={styles.primaryText}>Open In-App Camera</Text></TouchableOpacity>}
                 {mission.can_manage && <Text style={styles.count}>{mission.completion_count} completed</Text>}
               </View>
             ) : (
@@ -348,7 +363,8 @@ export default function RoomMissionCard({ roomId, requestedMissionId }: { roomId
       {mode === "scan" && <Modal visible animationType="slide" onRequestClose={closeScanner}>
         <View style={styles.scannerModal}>
           <TouchableOpacity style={styles.closeButton} onPress={closeScanner}><Text style={styles.closeText}>Close</Text></TouchableOpacity>
-          <Text style={styles.scannerTitle}>SCAN A PACK MEMBER</Text>
+          <Text style={styles.scannerTitle}>{isLiveNode ? "SCAN THE LIVE NODE" : "SCAN A PACK MEMBER"}</Text>
+          {isLiveNode && <Text style={styles.scannerCopy}>Keep the PartyUp QR inside the frame. You will verify and claim it without leaving the app.</Text>}
           {permission?.granted ? (
             <>
               <CameraView
@@ -356,7 +372,7 @@ export default function RoomMissionCard({ roomId, requestedMissionId }: { roomId
                 facing="back"
                 enableTorch={torchEnabled}
                 barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-                onBarcodeScanned={scanLocked ? undefined : ({ data }) => void redeem(data)}
+                onBarcodeScanned={scanLocked ? undefined : ({ data }) => isLiveNode ? openScannedLiveNode(data) : void redeem(data)}
               />
               <TouchableOpacity
                 accessibilityRole="switch"
@@ -368,9 +384,9 @@ export default function RoomMissionCard({ roomId, requestedMissionId }: { roomId
               </TouchableOpacity>
             </>
           ) : <TouchableOpacity style={styles.primaryButton} onPress={() => void openScanner()}><Text style={styles.primaryText}>Allow Camera</Text></TouchableOpacity>}
-          <Text style={styles.or}>OR ENTER THEIR TEMPORARY CODE</Text>
+          {!isLiveNode && <><Text style={styles.or}>OR ENTER THEIR TEMPORARY CODE</Text>
           <TextInput value={manualCode} onChangeText={(value) => setManualCode(value.toUpperCase())} autoCapitalize="characters" maxLength={64} placeholder="F7K2A1B9" placeholderTextColor="#71717A" style={styles.codeInput} />
-          <TouchableOpacity style={styles.scanButton} disabled={busy || !manualCode.trim()} onPress={() => void redeem(manualCode)}><Text style={styles.primaryText}>{busy ? "Checking…" : "Confirm Encounter"}</Text></TouchableOpacity>
+          <TouchableOpacity style={styles.scanButton} disabled={busy || !manualCode.trim()} onPress={() => void redeem(manualCode)}><Text style={styles.primaryText}>{busy ? "Checking…" : "Confirm Encounter"}</Text></TouchableOpacity></>}
           {feedback && <Text style={[styles.feedback, feedback.includes("✓") && styles.success]}>{feedback}</Text>}
           {error && <Text style={styles.error}>{error}</Text>}
         </View>
@@ -414,6 +430,8 @@ const styles = StyleSheet.create({
   count: { color: "#D4D4D8", fontSize: 13, fontWeight: "800", marginTop: 10, textAlign: "center" },
   feedback: { color: "#FDE68A", fontSize: 14, fontWeight: "900", marginTop: 13, textAlign: "center" },
   success: { color: "#6EE7B7" },
+  liveNodeWinner: { color: "#6EE7B7", fontSize: 18, fontWeight: "900", marginTop: 14, textAlign: "center" },
+  liveNodeScanButton: { alignSelf: "stretch", marginTop: 16 },
   error: { color: "#FCA5A5", fontSize: 13, fontWeight: "800", lineHeight: 18, marginTop: 10, textAlign: "center" },
   animalModal: { alignItems: "center", backgroundColor: "#030006", flex: 1, justifyContent: "center", padding: 24 },
   modalEyebrow: { color: "#E9D5FF", fontSize: 14, fontWeight: "900", letterSpacing: 3 },
@@ -429,6 +447,7 @@ const styles = StyleSheet.create({
   loading: { color: "#D4D4D8", fontWeight: "800", marginTop: 24 },
   scannerModal: { backgroundColor: "#09040F", flex: 1, justifyContent: "center", padding: 24 },
   scannerTitle: { color: "#FFF", fontSize: 22, fontWeight: "900", marginBottom: 18, textAlign: "center" },
+  scannerCopy: { color: "#D4D4D8", fontSize: 14, lineHeight: 20, marginBottom: 14, textAlign: "center" },
   camera: { borderRadius: 12, height: 320, overflow: "hidden", width: "100%" },
   torchButton: { alignItems: "center", borderColor: "rgba(253,224,71,0.4)", borderRadius: 8, borderWidth: 1, justifyContent: "center", marginTop: 10, minHeight: 44 },
   torchButtonActive: { backgroundColor: "rgba(161,98,7,0.38)", borderColor: "#FDE047" },
