@@ -991,12 +991,17 @@ async function endEvent() {
           (tab) => (
             <TouchableOpacity
               key={tab}
-              style={[styles.tab, activeTab === tab && styles.tabActive]}
+              style={[
+                styles.tab,
+                tab === "settings" && styles.settingsTab,
+                activeTab === tab && styles.tabActive,
+              ]}
               onPress={() => setActiveTab(tab)}
             >
               <Text
                 style={[
                   styles.tabText,
+                  tab === "settings" && styles.settingsTabText,
                   activeTab === tab && styles.tabTextActive,
                 ]}
               >
@@ -1504,6 +1509,30 @@ const styles = StyleSheet.create({
   tabActive: {
     backgroundColor: "#7C3AED",
     borderColor: "#A855F7",
+  },
+
+  settingsTab: {
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: "rgba(124,58,237,0.22)",
+    borderColor: "rgba(168,85,247,0.65)",
+    borderRadius: 18,
+    elevation: 4,
+    justifyContent: "center",
+    marginTop: 4,
+    minHeight: 58,
+    shadowColor: "#7C3AED",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.28,
+    shadowRadius: 12,
+    width: "100%",
+  },
+
+  settingsTabText: {
+    color: "#EDE9FE",
+    fontSize: 17,
+    letterSpacing: 0.3,
+    textAlign: "center",
   },
 
   tabText: {
