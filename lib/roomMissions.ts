@@ -203,6 +203,12 @@ export async function getRoomMissionHistory(supabase: SupabaseClient, roomId: st
   }));
 }
 
+export async function clearPastRoomMission(supabase: SupabaseClient, missionId: string) {
+  const { data, error } = await supabase.rpc("clear_past_room_mission", { p_mission_id: missionId });
+  if (error) throw new Error(error.message);
+  return Boolean(data);
+}
+
 export async function publishRoomMission(
   supabase: SupabaseClient,
   roomId: string,

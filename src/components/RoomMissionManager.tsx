@@ -9,6 +9,7 @@ import {
 } from "react-native";
 import { supabase } from "../../lib/supabase";
 import {
+  clearPastRoomMission,
   endRoomMission,
   getActiveRoomMission,
   getMissionCompletedParticipants,
@@ -68,6 +69,7 @@ export default function RoomMissionManager({
   const [historyOperationsMissionId, setHistoryOperationsMissionId] = useState<string | null>(null);
   const [historyOperations, setHistoryOperations] = useState<MissionOperationsData | null>(null);
   const [busy, setBusy] = useState(false);
+  const [clearingHistoryId, setClearingHistoryId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const recommendedParticipants = animalCount * (targetEncounters + 1);
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -281,6 +283,36 @@ export default function RoomMissionManager({
     setHistoryResults({ ...next, participants: [...historyResults.participants, ...next.participants] });
   }
 
+  function confirmClearHistoryItem(item: RoomMissionHistoryItem) {
+    Alert.alert("Clear past Mission?", `“${item.title}” will leave this dashboard. Its results and analytics stay stored.`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Clear",
+        style: "destructive",
+        onPress: async () => {
+          setClearingHistoryId(item.id);
+          setError(null);
+          try {
+            await clearPastRoomMission(supabase, item.id);
+            if (historyResultsMissionId === item.id) {
+              setHistoryResultsMissionId(null);
+              setHistoryResults(null);
+            }
+            if (historyOperationsMissionId === item.id) {
+              setHistoryOperationsMissionId(null);
+              setHistoryOperations(null);
+            }
+            await loadData();
+          } catch (reason) {
+            setError(reason instanceof Error ? reason.message : "Could not clear the past Mission.");
+          } finally {
+            setClearingHistoryId(null);
+          }
+        },
+      },
+    ]);
+  }
+
   return (
     <View style={styles.section}>
       <Text style={styles.heading}>Missions</Text>
@@ -445,7 +477,10 @@ export default function RoomMissionManager({
                   <Text style={styles.historyTitle} numberOfLines={1}>{item.title}</Text>
                   <Text style={styles.historyMeta}>{endedLabel(item.ended_reason)}</Text>
                 </View>
-                <Text style={styles.historyCount}>{item.completion_count} completed</Text>
+                <View style={styles.historyRight}>
+                  <Text style={styles.historyCount}>{item.completion_count} completed</Text>
+                  <TouchableOpacity accessibilityLabel={`Clear ${item.title} from Past Missions`} disabled={clearingHistoryId === item.id} onPress={() => confirmClearHistoryItem(item)} style={styles.clearHistoryButton}><Text style={styles.clearHistoryText}>×</Text></TouchableOpacity>
+                </View>
               </View>
               {!["connection", "wild_faction", "live_node"].includes(item.mission_type) && <>
                 <TouchableOpacity style={styles.historyResultsButton} onPress={() => void toggleHistoryOperations(item.id)}><Text style={styles.historyResultsText}>{historyOperationsMissionId === item.id ? "Hide Operations" : "View Operations"}</Text></TouchableOpacity>
@@ -518,6 +553,9 @@ const styles = StyleSheet.create({
   historyTitle: { color: "#FFFFFF", fontSize: 14, fontWeight: "900" },
   historyMeta: { color: "#71717A", fontSize: 11, fontWeight: "700", marginTop: 3 },
   historyCount: { color: "#D4D4D8", fontSize: 12, fontWeight: "900" },
+  historyRight: { alignItems: "center", flexDirection: "row", gap: 8 },
+  clearHistoryButton: { alignItems: "center", borderColor: "rgba(248,113,113,0.3)", borderRadius: 7, borderWidth: 1, height: 32, justifyContent: "center", width: 32 },
+  clearHistoryText: { color: "#FCA5A5", fontSize: 22, fontWeight: "900", lineHeight: 24 },
   historyResultsButton: { alignItems: "center", borderColor: "rgba(255,255,255,0.16)", borderRadius: 7, borderWidth: 1, marginTop: 9, minHeight: 38, justifyContent: "center" },
   historyResultsText: { color: "#E9D5FF", fontSize: 12, fontWeight: "900" },
   error: { color: "#FCA5A5", fontSize: 13, fontWeight: "800", lineHeight: 18, marginTop: 10 },
