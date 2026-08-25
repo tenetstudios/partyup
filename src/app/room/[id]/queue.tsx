@@ -1,9 +1,11 @@
 import { router, useLocalSearchParams } from "expo-router";
 import * as Linking from "expo-linking";
+import * as MediaLibrary from "expo-media-library";
 import { Image } from "expo-image";
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
+  PixelRatio,
   ScrollView,
   Share,
   Switch,
@@ -14,6 +16,7 @@ import {
   View,
 } from "react-native";
 import QRCode from "react-native-qrcode-svg";
+import { captureRef } from "react-native-view-shot";
 import { supabase } from "../../../../lib/supabase";
 import RoomMissionManager from "../../../components/RoomMissionManager";
 import WildHostManager from "../../../components/WildHostManager";
@@ -153,7 +156,9 @@ function RoomDescriptionEditor({ roomId, embedded = false }: { roomId: string; e
 
 function RoomEntryQrCard({ roomId, roomTitle, embedded = false }: { roomId: string; roomTitle: string; embedded?: boolean }) {
   const entryUrl = Linking.createURL(`/room/${roomId}`);
+  const posterRef = useRef<View>(null);
   const [posterWidth, setPosterWidth] = useState(0);
+  const [downloading, setDownloading] = useState(false);
   const posterScale = posterWidth / posterWidthPx;
   const qrSize = Math.round(posterQrSizePx * posterScale);
 
@@ -165,11 +170,45 @@ function RoomEntryQrCard({ roomId, roomTitle, embedded = false }: { roomId: stri
     }
   }
 
+  async function downloadPoster() {
+    if (!posterRef.current || downloading) return;
+    setDownloading(true);
+
+    try {
+      const permission = await MediaLibrary.requestPermissionsAsync(true);
+      if (!permission.granted) {
+        Alert.alert(
+          "Photo access needed",
+          "Allow PartyUp to add photos so the room poster can be saved to your device.",
+        );
+        return;
+      }
+
+      const pixelRatio = PixelRatio.get();
+      const posterUri = await captureRef(posterRef, {
+        format: "png",
+        height: posterHeightPx / pixelRatio,
+        quality: 1,
+        result: "tmpfile",
+        width: posterWidthPx / pixelRatio,
+      });
+
+      await MediaLibrary.saveToLibraryAsync(posterUri);
+      Alert.alert("Poster downloaded", "The room QR poster was saved to your photo library.");
+    } catch {
+      Alert.alert("Download unavailable", "The room poster could not be saved right now.");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <View style={[styles.setupCard, embedded && styles.embeddedSection]}>
       <Text style={styles.name}>Room QR code</Text>
       <Text style={styles.meta}>Guests can scan the event poster to open this room.</Text>
       <View
+        ref={posterRef}
+        collapsable={false}
         onLayout={(event) => setPosterWidth(event.nativeEvent.layout.width)}
         style={styles.posterPreview}
       >
@@ -201,9 +240,21 @@ function RoomEntryQrCard({ roomId, roomTitle, embedded = false }: { roomId: stri
           </View>
         ) : null}
       </View>
-      <TouchableOpacity style={styles.purplePillButton} onPress={() => void shareEntry()}>
-        <Text style={styles.buttonText}>Share Room Link</Text>
-      </TouchableOpacity>
+      <View style={styles.posterActions}>
+        <TouchableOpacity
+          style={[styles.purplePillButton, styles.posterActionButton]}
+          disabled={downloading}
+          onPress={() => void downloadPoster()}
+        >
+          <Text style={styles.buttonText}>{downloading ? "Saving..." : "Download Poster"}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.secondaryPillButton, styles.posterActionButton]}
+          onPress={() => void shareEntry()}
+        >
+          <Text style={styles.secondaryPillText}>Share Room Link</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -1467,6 +1518,21 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     position: "relative",
     width: "100%",
+  },
+  posterActions: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "center",
+    marginTop: 14,
+    width: "100%",
+  },
+  posterActionButton: {
+    flex: 1,
+    marginTop: 0,
+    minWidth: 0,
+    paddingHorizontal: 10,
+    width: "auto",
   },
   posterQr: {
     backgroundColor: "#FFFFFF",

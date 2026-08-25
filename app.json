@@ -60,6 +60,14 @@
           "recordAudioAndroid": false
         }
       ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow PartyUp to access photos when saving room posters.",
+          "savePhotosPermission": "Allow PartyUp to save room QR posters to your photos.",
+          "granularPermissions": []
+        }
+      ],
       "expo-video"
     ],
     "experiments": {
