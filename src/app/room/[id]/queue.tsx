@@ -954,14 +954,14 @@ async function endEvent() {
                         <Text style={styles.meta}>Approved and waiting</Text>
                         <View style={styles.actions}>
                           <TouchableOpacity
-                            style={styles.secondaryPillButton}
+                            style={[styles.secondaryPillButton, styles.compactControlButton]}
                             disabled={index === 0 || Boolean(streamQueueBusyUserId)}
                             onPress={() => void moveStreamQueueEntry(entry.user_id, "up")}
                           >
                             <Text style={styles.secondaryPillText}>Move Up</Text>
                           </TouchableOpacity>
                           <TouchableOpacity
-                            style={styles.secondaryPillButton}
+                            style={[styles.secondaryPillButton, styles.compactControlButton]}
                             disabled={index === waitingToBroadcast.length - 1 || Boolean(streamQueueBusyUserId)}
                             onPress={() => void moveStreamQueueEntry(entry.user_id, "down")}
                           >
@@ -1388,35 +1388,49 @@ const styles = StyleSheet.create({
   },
   purplePillButton: {
     alignItems: "center",
-    alignSelf: "flex-start",
+    alignSelf: "center",
     backgroundColor: "#7C3AED",
     borderColor: "#A78BFA",
     borderRadius: 999,
     borderWidth: 1,
-    marginTop: 14,
-    minHeight: 46,
     justifyContent: "center",
-    paddingHorizontal: 20,
+    marginTop: 14,
+    maxWidth: 320,
+    minHeight: 48,
+    paddingHorizontal: 18,
+    width: "100%",
   },
   secondaryPillButton: {
     alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: "rgba(255,255,255,0.035)",
     borderColor: "rgba(196,181,253,0.45)",
     borderRadius: 999,
     borderWidth: 1,
-    marginTop: 14,
-    minHeight: 46,
     justifyContent: "center",
+    marginTop: 14,
+    maxWidth: 320,
+    minHeight: 48,
     paddingHorizontal: 18,
+    width: "100%",
   },
   secondaryPillText: {
     color: "#E9D5FF",
     fontWeight: "900",
+    textAlign: "center",
+  },
+  compactControlButton: {
+    flexGrow: 1,
+    marginTop: 0,
+    minWidth: 120,
+    width: "auto",
   },
   inlineActions: {
     alignItems: "center",
-    flexDirection: "row",
-    flexWrap: "wrap",
+    alignSelf: "center",
     gap: 10,
+    maxWidth: 320,
+    width: "100%",
   },
   announcementPreview: {
     backgroundColor: "#08080D",
@@ -1467,12 +1481,17 @@ const styles = StyleSheet.create({
   },
   endEventButton: {
     alignItems: "center",
+    alignSelf: "center",
     backgroundColor: "#7C3AED",
     borderColor: "#A78BFA",
     borderRadius: 999,
     borderWidth: 1,
+    justifyContent: "center",
     marginTop: 14,
-    paddingVertical: 13,
+    maxWidth: 320,
+    minHeight: 48,
+    paddingHorizontal: 18,
+    width: "100%",
   },
 
   rank: {
@@ -1501,76 +1520,112 @@ const styles = StyleSheet.create({
 
   actions: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 10,
+    justifyContent: "center",
     marginTop: 14,
   },
 
   acceptButton: {
-    flex: 1,
-    backgroundColor: "#7C3AED",
-    borderRadius: 999,
-    paddingVertical: 13,
     alignItems: "center",
-  },
-
-  rejectButton: {
-    flex: 1,
-    backgroundColor: "#2A2A35",
-    borderRadius: 999,
-    paddingVertical: 13,
-    alignItems: "center",
-  },
-
-  kickButton: {
-    flex: 1,
-    backgroundColor: "#7F1D1D",
-    borderRadius: 999,
-    paddingVertical: 13,
-    alignItems: "center",
-  },
-
-  privacyButton: {
-  backgroundColor: "#7C3AED",
-  borderColor: "#A78BFA",
-  borderWidth: 1,
-  borderRadius: 999,
-  paddingVertical: 16,
-  alignItems: "center",
-  marginTop: 20,
-},
-  obsButton: {
-    alignItems: "center",
-    alignSelf: "flex-start",
     backgroundColor: "#7C3AED",
     borderColor: "#A78BFA",
     borderRadius: 999,
     borderWidth: 1,
-    marginTop: 14,
+    flexGrow: 1,
+    justifyContent: "center",
+    minHeight: 46,
+    minWidth: 120,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+  },
+
+  rejectButton: {
+    alignItems: "center",
+    backgroundColor: "#2A2A35",
+    borderColor: "rgba(255,255,255,0.14)",
+    borderRadius: 999,
+    borderWidth: 1,
+    flexGrow: 1,
+    justifyContent: "center",
+    minHeight: 46,
+    minWidth: 120,
+    paddingHorizontal: 16,
+  },
+
+  kickButton: {
+    alignItems: "center",
+    backgroundColor: "#7F1D1D",
+    borderColor: "rgba(248,113,113,0.5)",
+    borderRadius: 999,
+    borderWidth: 1,
+    flexGrow: 1,
+    justifyContent: "center",
+    minHeight: 46,
+    minWidth: 120,
+    paddingHorizontal: 16,
+  },
+
+  privacyButton: {
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: "#7C3AED",
+    borderColor: "#A78BFA",
+    borderRadius: 999,
+    borderWidth: 1,
+    justifyContent: "center",
+    marginTop: 18,
+    maxWidth: 320,
+    minHeight: 48,
+    paddingHorizontal: 18,
+    width: "100%",
+  },
+  obsButton: {
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: "#7C3AED",
+    borderColor: "#A78BFA",
+    borderRadius: 999,
+    borderWidth: 1,
+    justifyContent: "center",
+    marginTop: 14,
+    maxWidth: 320,
+    minHeight: 48,
+    paddingHorizontal: 18,
+    width: "100%",
   },
   
   deleteButton: {
-    backgroundColor: "#7F1D1D",
-    borderRadius: 999,
-    paddingVertical: 16,
     alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: "#7F1D1D",
+    borderColor: "rgba(248,113,113,0.5)",
+    borderRadius: 999,
+    borderWidth: 1,
+    justifyContent: "center",
     marginTop: 20,
+    maxWidth: 320,
+    minHeight: 48,
+    paddingHorizontal: 18,
+    width: "100%",
   },
 
   buttonText: {
     color: "white",
+    fontSize: 14,
     fontWeight: "900",
+    letterSpacing: 0.15,
+    textAlign: "center",
   },
-repButton: {
-  backgroundColor: "#22C55E",
-  paddingHorizontal: 12,
-  paddingVertical: 8,
-  borderRadius: 999,
-},
-
-repButtonText: {
-  color: "white",
-  fontWeight: "900",
-},
+  repButton: {
+    alignItems: "center",
+    backgroundColor: "#15803D",
+    borderColor: "rgba(74,222,128,0.55)",
+    borderRadius: 999,
+    borderWidth: 1,
+    flexGrow: 1,
+    justifyContent: "center",
+    minHeight: 46,
+    minWidth: 120,
+    paddingHorizontal: 16,
+  },
 });
