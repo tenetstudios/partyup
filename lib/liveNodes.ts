@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type LiveNodeScanStatus = "active" | "winner" | "inactive" | "claimed" | "already_claimed_by_you" | "ended" | "room_ended" | "not_eligible" | "invalid";
+export type LiveNode = { id: string; room_id: string; mission_id: string | null; name: string; description: string | null; reward_description: string | null; status: "draft" | "armed" | "active" | "claimed" | "ended"; max_claims: number; starts_at: string | null; ends_at: string | null; claim_count: number };
 
 export type LiveNodeScanState = {
   status: LiveNodeScanStatus;
@@ -21,6 +22,12 @@ export function parseLiveNodeQrToken(value: string): string | null {
   if (!match?.[1]) return null;
   try { return decodeURIComponent(match[1]); }
   catch { return null; }
+}
+
+export async function getRoomLiveNodes(supabase: SupabaseClient, roomId: string) {
+  const { data, error } = await supabase.rpc("get_room_live_nodes", { p_room_id: roomId });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as LiveNode[];
 }
 
 export async function getLiveNodeScanState(supabase: SupabaseClient, token: string, guestToken?: string | null) {
