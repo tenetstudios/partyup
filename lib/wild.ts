@@ -21,7 +21,7 @@ export type WildMission = {
     faction_key: string;
     territory_key: string;
     influence_reward: number;
-    verification_type?: "none" | "encounter" | "memory_upload" | "match_faction" | "live_node";
+    verification_type?: "none" | "encounter" | "memory_upload" | "match_faction" | "live_node" | "form_squad";
     encounter_relationship?: "same_faction" | "different_faction" | "specific_faction" | null;
     required_encounters?: number;
     target_faction?: string | null;
@@ -42,7 +42,7 @@ export type WildMatchState = { progress: number; required_matches: number; compl
 export type WildEncounterStatus = "valid" | "self_scan" | "wrong_mission" | "wrong_game" | "wrong_room" | "wrong_faction" | "wrong_animal" | "same_faction_required" | "different_faction_required" | "specific_faction_required" | "duplicate" | "expired" | "mission_ended" | "game_ended" | "invalid";
 export type WildSquadFormationStatus = WildEncounterStatus | "already_in_squad" | "squad_full";
 export type WildSquadState = { id: string; game_id: string; faction_key: string; label: string; status: "provisional" | "active" | "ended"; member_count: number; minimum_members: number; maximum_members: number; formation_progress: number; members_needed: number; can_add_members: boolean; members: { identity_id: string; display_name: string; avatar_url: string | null; joined_at: string; is_you: boolean }[] };
-export type WildSquadMissionState = { squad_id: string | null; progress: number; required_progress: number; personal_progress: number; completed: boolean; eligible: boolean; verification_type: "encounter" | "match_faction" | "memory_upload" | "live_node"; mission_active: boolean };
+export type WildSquadMissionState = { squad_id: string | null; progress: number; required_progress: number; personal_progress: number; completed: boolean; eligible: boolean; verification_type: "encounter" | "match_faction" | "memory_upload" | "live_node" | "form_squad"; mission_active: boolean };
 export type WildSquadOverview = { id: string; faction_key: string; status: "provisional" | "active" | "ended"; member_count: number; missions_completed: number };
 export type WildWinnerScore = {
   faction_key: string;
@@ -106,7 +106,7 @@ export async function enterWildGame(supabase: SupabaseClient, gameId: string, gu
 
 export async function publishWildMission(
   supabase: SupabaseClient,
-  input: { gameId: string; factionKey: string; territoryKey: string; title: string; description?: string | null; influenceReward: number; durationMinutes: number; verificationType?: "none" | "encounter" | "memory_upload" | "match_faction" | "live_node"; encounterRelationship?: "same_faction" | "different_faction" | "specific_faction" | null; requiredEncounters?: number; targetFaction?: string | null; requiredMediaType?: "any" | "image" | "video"; requiredMatches?: number; scope?: "faction" | "squad"; requiredProgress?: number; liveNodeId?: string | null },
+  input: { gameId: string; factionKey: string; territoryKey: string; title: string; description?: string | null; influenceReward: number; durationMinutes: number; verificationType?: "none" | "encounter" | "memory_upload" | "match_faction" | "live_node" | "form_squad"; encounterRelationship?: "same_faction" | "different_faction" | "specific_faction" | null; requiredEncounters?: number; targetFaction?: string | null; requiredMediaType?: "any" | "image" | "video"; requiredMatches?: number; scope?: "faction" | "squad"; requiredProgress?: number; liveNodeId?: string | null },
 ) {
   if (input.scope === "squad") {
     const { data, error } = await supabase.rpc("publish_wild_squad_mission", { p_game_id: input.gameId, p_faction_key: input.factionKey, p_territory_key: input.territoryKey, p_title: input.title, p_description: input.description ?? null, p_influence_reward: input.influenceReward, p_duration_minutes: input.durationMinutes, p_verification_type: input.verificationType, p_required_progress: input.requiredProgress ?? input.requiredMatches ?? input.requiredEncounters ?? 1, p_encounter_relationship: input.encounterRelationship ?? null, p_target_faction: input.targetFaction ?? null, p_required_media_type: input.requiredMediaType ?? "any", p_live_node_id: input.liveNodeId ?? null });

@@ -17,7 +17,7 @@ export type RoomMission = {
     faction_key?: string;
     territory_key?: string;
     influence_reward?: number;
-    verification_type?: "none" | "encounter" | "memory_upload" | "match_faction" | "live_node";
+    verification_type?: "none" | "encounter" | "memory_upload" | "match_faction" | "live_node" | "form_squad";
     node_id?: string;
     required_claim?: boolean;
     reward_description?: string | null;
