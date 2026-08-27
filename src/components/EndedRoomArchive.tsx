@@ -125,7 +125,7 @@ export default function EndedRoomArchive({
         <View style={styles.hostRow}>
           <TouchableOpacity
             onPress={() => router.push({ pathname: "/user/[id]", params: { id: hostId } })}
-            style={styles.hostIdentity}
+            style={styles.hostAvatarButton}
           >
             <View style={styles.hostAvatar}>
               {hostProfile?.avatar_url ? (
@@ -136,22 +136,29 @@ export default function EndedRoomArchive({
                 </Text>
               )}
             </View>
-            <View style={styles.hostCopy}>
-              <Text style={styles.hostMessageEyebrow}>A MESSAGE FROM THE HOST</Text>
-              <Text numberOfLines={1} style={styles.hostName}>
-                {hostProfile ? getHostDisplayName(hostProfile) : "Event host"}
-              </Text>
-            </View>
           </TouchableOpacity>
-          {currentUserId && currentUserId !== hostId ? (
-            <TouchableOpacity
-              disabled={followBusy}
-              onPress={() => void toggleFollow()}
-              style={[styles.followButton, isFollowing && styles.followingButton]}
-            >
-              <Text style={styles.followButtonText}>{followBusy ? "Saving..." : isFollowing ? "Following" : "Follow"}</Text>
-            </TouchableOpacity>
-          ) : null}
+          <View style={styles.hostCopy}>
+            <Text style={styles.hostMessageEyebrow}>A MESSAGE FROM THE HOST</Text>
+            <View style={styles.hostNameRow}>
+              <TouchableOpacity onPress={() => router.push({ pathname: "/user/[id]", params: { id: hostId } })} style={styles.hostNameButton}>
+                <Text numberOfLines={1} style={styles.hostName}>
+                  {hostProfile ? getHostDisplayName(hostProfile) : "Event host"}
+                </Text>
+              </TouchableOpacity>
+              {currentUserId && currentUserId !== hostId ? (
+                <>
+                  <Text style={styles.hostSeparator}>·</Text>
+                  <TouchableOpacity
+                    disabled={followBusy}
+                    onPress={() => void toggleFollow()}
+                    style={[styles.followButton, isFollowing && styles.followingButton]}
+                  >
+                    <Text style={styles.followButtonText}>{followBusy ? "Saving..." : isFollowing ? "Following" : "Follow"}</Text>
+                  </TouchableOpacity>
+                </>
+              ) : null}
+            </View>
+          </View>
         </View>
         <Text style={styles.hostMessageText}>
           {loading ? "Opening the event archive..." : hostMessage || "Thanks for joining. This event has ended."}
@@ -238,14 +245,17 @@ const styles = StyleSheet.create({
   hostAvatar: { alignItems: "center", backgroundColor: "#7C3AED", borderColor: "rgba(255,255,255,0.2)", borderRadius: 999, borderWidth: 1, height: 48, justifyContent: "center", overflow: "hidden", width: 48 },
   hostAvatarFallback: { color: "#FFFFFF", fontSize: 13, fontWeight: "900" },
   hostAvatarImage: { height: "100%", width: "100%" },
+  hostAvatarButton: { borderRadius: 999 },
   hostCopy: { flex: 1 },
-  hostIdentity: { alignItems: "center", flex: 1, flexDirection: "row", gap: 11, minWidth: 180 },
   hostMessageEyebrow: { color: "#FF83B8", fontSize: 11, fontWeight: "900", letterSpacing: 1.2 },
   hostMessageText: { color: "#FFFFFF", fontSize: 19, fontWeight: "800", lineHeight: 28, marginTop: 10 },
-  hostName: { color: "#FFFFFF", fontSize: 13, fontWeight: "900", marginTop: 4 },
-  hostRow: { alignItems: "center", flexDirection: "row", flexWrap: "wrap", gap: 12 },
-  followButton: { backgroundColor: "#EF2F91", borderRadius: 999, minWidth: 82, paddingHorizontal: 14, paddingVertical: 10 },
-  followButtonText: { color: "#FFFFFF", fontSize: 12, fontWeight: "900", textAlign: "center" },
+  hostName: { color: "#FFFFFF", fontSize: 13, fontWeight: "900" },
+  hostNameButton: { flexShrink: 1 },
+  hostNameRow: { alignItems: "center", flexDirection: "row", gap: 7, marginTop: 4 },
+  hostRow: { alignItems: "center", flexDirection: "row", gap: 11 },
+  hostSeparator: { color: "#71717A", fontSize: 12, fontWeight: "900" },
+  followButton: { backgroundColor: "#EF2F91", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
+  followButtonText: { color: "#FFFFFF", fontSize: 10, fontWeight: "900", textAlign: "center" },
   followingButton: { backgroundColor: "rgba(255,255,255,0.07)", borderColor: "rgba(255,255,255,0.16)", borderWidth: 1 },
   linksCard: { backgroundColor: "#120B1A", borderColor: "rgba(196,154,255,0.22)", borderRadius: 18, borderWidth: 1, padding: 20 },
   linksCopy: { color: "#A1A1AA", fontSize: 14, fontWeight: "700", lineHeight: 21, marginBottom: 16, marginTop: 7 },
