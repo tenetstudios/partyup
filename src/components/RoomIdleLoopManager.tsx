@@ -8,7 +8,15 @@ import IdleLoopMedia from "./IdleLoopMedia";
 const VIDEO_LIMIT = 20 * 1024 * 1024;
 const GIF_LIMIT = 10 * 1024 * 1024;
 
-export default function RoomIdleLoopManager({ roomId, embedded = false }: { roomId: string; embedded?: boolean }) {
+export default function RoomIdleLoopManager({
+  embedded = false,
+  presentation = "idle-loop",
+  roomId,
+}: {
+  embedded?: boolean;
+  presentation?: "idle-loop" | "event-replay";
+  roomId: string;
+}) {
   const [media, setMedia] = useState<RoomIdleMedia | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -83,7 +91,10 @@ export default function RoomIdleLoopManager({ roomId, embedded = false }: { room
       }
       await load();
     } catch (error) {
-      Alert.alert("Could not save Idle Loop", error instanceof Error ? error.message : "Please try again.");
+      Alert.alert(
+        presentation === "event-replay" ? "Could not save Event Replay" : "Could not save Idle Loop",
+        error instanceof Error ? error.message : "Please try again.",
+      );
     } finally {
       setBusy(false);
     }
@@ -95,13 +106,18 @@ export default function RoomIdleLoopManager({ roomId, embedded = false }: { room
     const { error } = await supabase.rpc("set_room_idle_media_enabled", { p_room_id: roomId, p_enabled: enabled });
     if (error) {
       setMedia({ ...media, enabled: !enabled });
-      Alert.alert("Could not update Idle Loop", error.message);
+      Alert.alert(presentation === "event-replay" ? "Could not update Event Replay" : "Could not update Idle Loop", error.message);
     }
   }
 
   function confirmRemove() {
     if (!media || busy) return;
-    Alert.alert("Remove Idle Loop?", "Guests will see the standard waiting screen when nobody is live.", [
+    Alert.alert(
+      presentation === "event-replay" ? "Remove Event Replay?" : "Remove Idle Loop?",
+      presentation === "event-replay"
+        ? "Guests will see the Livestream ended placeholder."
+        : "Guests will see the standard waiting screen when nobody is live.",
+      [
       { text: "Cancel", style: "cancel" },
       {
         text: "Remove",
@@ -116,20 +132,41 @@ export default function RoomIdleLoopManager({ roomId, embedded = false }: { room
           else setMedia(null);
         },
       },
-    ]);
+      ],
+    );
   }
 
   return (
     <View style={[styles.card, embedded && styles.embedded]}>
-      <Text style={styles.eyebrow}>HOST IDLE LOOP</Text>
-      <Text style={styles.title}>Keep the room warm between streams</Text>
-      <Text style={styles.meta}>Upload a muted, looping MP4 (up to 30 seconds / 20 MB) or GIF (up to 10 MB). Live video always takes priority.</Text>
+      <Text style={styles.eyebrow}>{presentation === "event-replay" ? "EVENT ARCHIVE" : "HOST IDLE LOOP"}</Text>
+      <Text style={styles.title}>{presentation === "event-replay" ? "Event Replay" : "Keep the room warm between streams"}</Text>
+      <Text style={styles.meta}>
+        {presentation === "event-replay"
+          ? "Replace the ended livestream panel with a muted, looping MP4 (up to 30 seconds / 20 MB) or GIF (up to 10 MB)."
+          : "Upload a muted, looping MP4 (up to 30 seconds / 20 MB) or GIF (up to 10 MB). Live video always takes priority."}
+      </Text>
       {loading ? <ActivityIndicator color="#A78BFA" style={styles.loader} /> : null}
+      {!loading && !media && presentation === "event-replay" ? (
+        <View style={styles.replayPlaceholder}>
+          <Text style={styles.replayPlaceholderEyebrow}>BROADCAST OFFLINE</Text>
+          <Text style={styles.replayPlaceholderTitle}>Livestream ended</Text>
+          <Text style={styles.meta}>Upload an Event Replay to replace this placeholder.</Text>
+        </View>
+      ) : null}
       {media ? (
         <>
-          <View style={styles.preview}><IdleLoopMedia media={media} /></View>
+          <View style={styles.preview}>
+            <IdleLoopMedia
+              badgeLabel={presentation === "event-replay" ? media.enabled ? "EVENT ENDED · REPLAY" : "EVENT REPLAY OFF" : "HIGHLIGHTS"}
+              media={media}
+              nativeControls={presentation === "event-replay"}
+            />
+          </View>
           <View style={styles.toggleRow}>
-            <View style={styles.toggleCopy}><Text style={styles.label}>Show while idle</Text><Text style={styles.meta}>{media.enabled ? "Enabled" : "Disabled"}</Text></View>
+            <View style={styles.toggleCopy}>
+              <Text style={styles.label}>{presentation === "event-replay" ? "Show on the ended room" : "Show while idle"}</Text>
+              <Text style={styles.meta}>{media.enabled ? "Enabled" : "Disabled"}</Text>
+            </View>
             <Switch value={media.enabled} onValueChange={(value) => void setEnabled(value)} disabled={busy} trackColor={{ false: "#3F3F46", true: "#7C3AED" }} />
           </View>
         </>
@@ -153,6 +190,9 @@ const styles = StyleSheet.create({
   meta: { color: "#A1A1AA", lineHeight: 20 },
   loader: { marginVertical: 18 },
   preview: { borderRadius: 18, height: 180, overflow: "hidden" },
+  replayPlaceholder: { alignItems: "center", backgroundColor: "#000000", borderColor: "rgba(255,255,255,0.1)", borderRadius: 18, borderWidth: 1, height: 210, justifyContent: "center", padding: 20 },
+  replayPlaceholderEyebrow: { color: "#71717A", fontSize: 10, fontWeight: "900", letterSpacing: 1.2 },
+  replayPlaceholderTitle: { color: "#FFFFFF", fontSize: 26, fontWeight: "900", marginBottom: 8, marginTop: 7 },
   toggleRow: { alignItems: "center", flexDirection: "row", justifyContent: "space-between" },
   toggleCopy: { flex: 1 },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: 10, justifyContent: "center" },

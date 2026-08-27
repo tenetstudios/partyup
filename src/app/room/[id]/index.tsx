@@ -20,6 +20,7 @@ import LiveKitRoomView from "../../../components/LiveKitRoomView";
 import RoomMissionCard from "../../../components/RoomMissionCard";
 import WildRoomCard from "../../../components/WildRoomCard";
 import NotificationOptInCard from "../../../components/NotificationOptInCard";
+import EndedRoomArchive from "../../../components/EndedRoomArchive";
 import { getOrCreateEventMatchPool } from "../../../lib/matchmaking";
 import { friendlyChatError } from "../../../../lib/chatModeration";
 import {
@@ -49,6 +50,7 @@ type Room = {
   venue_name?: string;
   distance_km?: number;
   cover_image?: string | null;
+  description?: string | null;
 };
 
 type QueueUser = {
@@ -1431,22 +1433,36 @@ const requestedStreamers = [
         <TouchableOpacity onPress={() => router.replace("/home")}>
           <Text style={styles.mobileTopBack}>Back to Home</Text>
         </TouchableOpacity>
-        <WildRoomCard roomId={room.id} />
-        <View style={styles.endedEventCard}>
-          <Text style={styles.endedEventEyebrow}>PAST EVENT</Text>
+
+        <View style={styles.endedEventHeader}>
+          <View style={styles.endedStatusPill}>
+            <View style={styles.endedStatusDot} />
+            <Text style={styles.endedStatusText}>ENDED</Text>
+          </View>
           <Text style={styles.endedEventTitle}>{room.title}</Text>
-          <Text style={styles.endedEventCopy}>The live room is closed. Its Memories, recap, attendance, and Event Series history remain available.</Text>
-          <TouchableOpacity style={styles.endedEventPrimary} onPress={openMemories}>
-            <Text style={styles.endedEventPrimaryText}>View Memories</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.endedEventSecondary} onPress={() => router.push(`/recap/${room.id}` as never)}>
-            <Text style={styles.endedEventSecondaryText}>Open Recap</Text>
-          </TouchableOpacity>
-          {currentUserId === room.host_id && (
-            <TouchableOpacity style={styles.endedEventSecondary} onPress={openManageRoom}>
-              <Text style={styles.endedEventSecondaryText}>Event Settings</Text>
-            </TouchableOpacity>
-          )}
+          <Text style={styles.endedEventCopy}>This room is now a view-only event archive.</Text>
+        </View>
+
+        <EndedRoomArchive
+          idleMedia={idleMedia}
+          isHost={isHost}
+          onOpenMemories={openMemories}
+          onOpenRecap={() => router.push(`/recap/${room.id}` as never)}
+          onOpenSettings={openManageRoom}
+          roomId={room.id}
+        />
+
+        <WildRoomCard roomId={room.id} />
+
+        <View style={styles.endedRoomInfoCard}>
+          <Text style={styles.endedRoomInfoEyebrow}>ROOM INFORMATION</Text>
+          <View style={styles.endedRoomTags}>
+            {room.type ? <Text style={styles.endedRoomTag}>{room.type.replace(/_/g, " ").toUpperCase()}</Text> : null}
+            {room.mode ? <Text style={styles.endedRoomTag}>{room.mode.replace(/_/g, " ").toUpperCase()}</Text> : null}
+            <Text style={styles.endedRoomTag}>ENDED</Text>
+          </View>
+          {room.description ? <Text style={styles.endedRoomInfoCopy}>{room.description}</Text> : null}
+          {room.venue_name ? <Text style={styles.endedRoomVenue}>📍 {room.venue_name}</Text> : null}
         </View>
       </ScrollView>
     );
@@ -2503,22 +2519,26 @@ const requestedStreamers = [
   );
 }
 const styles = StyleSheet.create({
-  endedEventCard: {
-    alignItems: "center",
+  endedEventHeader: {
     backgroundColor: "#120B1A",
     borderColor: "rgba(196, 154, 255, 0.24)",
-    borderRadius: 8,
+    borderRadius: 18,
     borderWidth: 1,
-    marginTop: 34,
-    padding: 26,
+    marginBottom: 16,
+    marginTop: 18,
+    padding: 22,
   },
-  endedEventEyebrow: { color: "#FF83B8", fontSize: 11, fontWeight: "900" },
-  endedEventTitle: { color: "#FFFFFF", fontSize: 30, fontWeight: "900", marginTop: 8, textAlign: "center" },
-  endedEventCopy: { color: "#AAA4B8", fontSize: 15, lineHeight: 23, marginTop: 12, textAlign: "center" },
-  endedEventPrimary: { alignItems: "center", alignSelf: "stretch", backgroundColor: "#7C3AED", borderRadius: 8, marginTop: 24, paddingVertical: 14 },
-  endedEventPrimaryText: { color: "#FFFFFF", fontWeight: "900" },
-  endedEventSecondary: { alignItems: "center", alignSelf: "stretch", borderColor: "rgba(255,255,255,0.16)", borderRadius: 8, borderWidth: 1, marginTop: 10, paddingVertical: 14 },
-  endedEventSecondaryText: { color: "#FFFFFF", fontWeight: "900" },
+  endedEventTitle: { color: "#FFFFFF", fontSize: 30, fontWeight: "900", marginTop: 12 },
+  endedEventCopy: { color: "#AAA4B8", fontSize: 15, lineHeight: 23, marginTop: 8 },
+  endedRoomInfoCard: { backgroundColor: "rgba(255,255,255,0.025)", borderColor: "rgba(255,255,255,0.1)", borderRadius: 18, borderWidth: 1, marginTop: 16, padding: 20 },
+  endedRoomInfoCopy: { color: "#AAA4B8", fontSize: 14, lineHeight: 22, marginTop: 14 },
+  endedRoomInfoEyebrow: { color: "#B587FF", fontSize: 10, fontWeight: "900", letterSpacing: 1.2 },
+  endedRoomTag: { backgroundColor: "rgba(124,58,237,0.16)", borderRadius: 999, color: "#D8B4FE", fontSize: 10, fontWeight: "900", overflow: "hidden", paddingHorizontal: 10, paddingVertical: 7 },
+  endedRoomTags: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 },
+  endedRoomVenue: { color: "#E4E4E7", fontSize: 13, fontWeight: "800", marginTop: 14 },
+  endedStatusDot: { backgroundColor: "#71717A", borderRadius: 999, height: 8, width: 8 },
+  endedStatusPill: { alignItems: "center", alignSelf: "flex-start", backgroundColor: "rgba(113,113,122,0.2)", borderRadius: 999, flexDirection: "row", gap: 7, paddingHorizontal: 11, paddingVertical: 7 },
+  endedStatusText: { color: "#D4D4D8", fontSize: 10, fontWeight: "900", letterSpacing: 1 },
   page: {
     flex: 1,
     backgroundColor: "#050509",

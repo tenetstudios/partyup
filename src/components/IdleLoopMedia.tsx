@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { Animated, StyleSheet, Text, View } from "react-native";
 import type { RoomIdleMedia } from "../lib/roomIdleMedia";
 
-function IdleVideo({ media }: { media: RoomIdleMedia }) {
+function IdleVideo({ media, nativeControls }: { media: RoomIdleMedia; nativeControls: boolean }) {
   const player = useVideoPlayer(media.signed_url, (instance) => {
     instance.loop = true;
     instance.muted = true;
@@ -14,7 +14,7 @@ function IdleVideo({ media }: { media: RoomIdleMedia }) {
   return (
     <VideoView
       contentFit="cover"
-      nativeControls={false}
+      nativeControls={nativeControls}
       player={player}
       style={styles.media}
       surfaceType="textureView"
@@ -22,7 +22,15 @@ function IdleVideo({ media }: { media: RoomIdleMedia }) {
   );
 }
 
-export default function IdleLoopMedia({ media }: { media: RoomIdleMedia }) {
+export default function IdleLoopMedia({
+  badgeLabel = "HIGHLIGHTS",
+  media,
+  nativeControls = false,
+}: {
+  badgeLabel?: string;
+  media: RoomIdleMedia;
+  nativeControls?: boolean;
+}) {
   const opacity = useRef(new Animated.Value(0.35)).current;
   useEffect(() => {
     Animated.timing(opacity, { duration: 220, toValue: 1, useNativeDriver: true }).start();
@@ -31,13 +39,13 @@ export default function IdleLoopMedia({ media }: { media: RoomIdleMedia }) {
   return (
     <Animated.View style={[styles.frame, { opacity }]}>
       {media.media_type === "video" ? (
-        <IdleVideo media={media} />
+        <IdleVideo media={media} nativeControls={nativeControls} />
       ) : (
         <Image contentFit="cover" source={{ uri: media.signed_url }} style={styles.media} />
       )}
       <View style={styles.shade} />
       <View style={styles.badge}>
-        <Text style={styles.badgeText}>HIGHLIGHTS</Text>
+        <Text style={styles.badgeText}>{badgeLabel}</Text>
       </View>
     </Animated.View>
   );

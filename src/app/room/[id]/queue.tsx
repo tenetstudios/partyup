@@ -903,6 +903,20 @@ async function endEvent() {
   );
 }
 
+async function saveAfterEventMessage() {
+  if (!room || !isHost || closeoutBusy) return;
+  setCloseoutBusy(true);
+  const { error } = await supabase.rpc("set_room_recap_message", {
+    p_room_id: room.id,
+    p_message: afterEventMessage,
+  });
+  setCloseoutBusy(false);
+  Alert.alert(
+    error ? "Could not save after-event message" : "After-event message saved",
+    error?.message || (afterEventMessage.trim() ? "Guests will see the updated message in the event archive and recap." : "The custom message was removed."),
+  );
+}
+
   if (!room) {
     return (
       <View style={styles.page}>
@@ -929,6 +943,29 @@ async function endEvent() {
       <ScrollView style={styles.page} contentContainerStyle={styles.container}>
         <Text style={styles.heading}>Event Ended</Text>
         <Text style={styles.subheading}>{room.title} is read-only. Memories, recaps, attendance, and series history are retained.</Text>
+        {isHost ? (
+          <>
+            <RoomIdleLoopManager roomId={room.id} presentation="event-replay" />
+            <View style={styles.setupCard}>
+              <Text style={styles.closeoutEyebrow}>A MESSAGE FROM THE HOST</Text>
+              <Text style={styles.name}>After-event message</Text>
+              <Text style={styles.meta}>Shown above Event Replay in the room archive and in each attendee&apos;s recap.</Text>
+              <TextInput
+                value={afterEventMessage}
+                onChangeText={setAfterEventMessage}
+                maxLength={500}
+                multiline
+                numberOfLines={4}
+                placeholder="Thanks for coming. See you next time."
+                placeholderTextColor="#71717A"
+                style={styles.descriptionInput}
+              />
+              <TouchableOpacity style={styles.purplePillButton} disabled={closeoutBusy} onPress={() => void saveAfterEventMessage()}>
+                <Text style={styles.buttonText}>{closeoutBusy ? "Saving..." : "Save Message"}</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        ) : null}
         {isHost && <WildHostManager roomId={room.id} roomEnded />}
         <RoomMissionManager roomId={room.id} isHost={isHost} roomEnded />
         <TouchableOpacity style={styles.privacyButton} onPress={() => router.replace(`/room/${room.id}`)}>
