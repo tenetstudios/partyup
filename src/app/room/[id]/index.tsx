@@ -1444,6 +1444,7 @@ const requestedStreamers = [
         </View>
 
         <EndedRoomArchive
+          hostId={room.host_id}
           idleMedia={idleMedia}
           isHost={isHost}
           onOpenMemories={openMemories}

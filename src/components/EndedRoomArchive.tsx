@@ -1,8 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import * as Linking from "expo-linking";
+import { router } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { getHostDisplayName, getHostReputationProfile, type HostProfile } from "../../lib/hostProfile";
 import {
   formatMemoryTimestamp,
   getMemoryPublicUrl,
@@ -16,6 +18,7 @@ import RoomIdleLoopManager from "./RoomIdleLoopManager";
 
 type EndedRoomArchiveProps = {
   idleMedia: RoomIdleMedia | null;
+  hostId: string;
   isHost: boolean;
   onOpenMemories: () => void;
   onOpenRecap: () => void;
@@ -50,6 +53,7 @@ function ReplayViewer({ idleMedia }: { idleMedia: RoomIdleMedia | null }) {
 
 export default function EndedRoomArchive({
   idleMedia,
+  hostId,
   isHost,
   onOpenMemories,
   onOpenRecap,
@@ -57,18 +61,44 @@ export default function EndedRoomArchive({
   roomId,
 }: EndedRoomArchiveProps) {
   const [hostMessage, setHostMessage] = useState<string | null>(null);
+  const [hostProfile, setHostProfile] = useState<HostProfile | null>(null);
+  const [currentUserId, setCurrentUserId] = useState("");
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [followBusy, setFollowBusy] = useState(false);
   const [memories, setMemories] = useState<RoomMemory[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    const [messageResult, memoryResult] = await Promise.all([
+    const [userResult, messageResult, memoryResult, hostResult] = await Promise.all([
+      supabase.auth.getUser(),
       supabase.from("room_recap_messages").select("message").eq("room_id", roomId).maybeSingle(),
       getRoomMemories(roomId).catch(() => []),
+      getHostReputationProfile(hostId).catch(() => null),
     ]);
+    setCurrentUserId(userResult.data.user?.id || "");
     setHostMessage(messageResult.data?.message?.trim() || null);
     setMemories(memoryResult.slice(0, 6));
+    setHostProfile(hostResult?.profile ?? null);
+    setIsFollowing(hostResult?.social.is_following ?? false);
     setLoading(false);
-  }, [roomId]);
+  }, [hostId, roomId]);
+
+  async function toggleFollow() {
+    if (!currentUserId || currentUserId === hostId || followBusy) return;
+    const nextFollowing = !isFollowing;
+    setFollowBusy(true);
+    setIsFollowing(nextFollowing);
+
+    const { error } = nextFollowing
+      ? await supabase.from("follows").insert({ follower_id: currentUserId, following_id: hostId })
+      : await supabase.from("follows").delete().eq("follower_id", currentUserId).eq("following_id", hostId);
+
+    if (error) {
+      setIsFollowing(!nextFollowing);
+      Alert.alert("Could not update Follow", error.message);
+    }
+    setFollowBusy(false);
+  }
 
   useEffect(() => {
     void load();
@@ -92,7 +122,37 @@ export default function EndedRoomArchive({
   return (
     <View style={styles.archive}>
       <View style={styles.hostMessageCard}>
-        <Text style={styles.hostMessageEyebrow}>A MESSAGE FROM THE HOST</Text>
+        <View style={styles.hostRow}>
+          <TouchableOpacity
+            onPress={() => router.push({ pathname: "/user/[id]", params: { id: hostId } })}
+            style={styles.hostIdentity}
+          >
+            <View style={styles.hostAvatar}>
+              {hostProfile?.avatar_url ? (
+                <Image contentFit="cover" source={{ uri: hostProfile.avatar_url }} style={styles.hostAvatarImage} />
+              ) : (
+                <Text style={styles.hostAvatarFallback}>
+                  {(hostProfile ? getHostDisplayName(hostProfile) : "Host").slice(0, 2).toUpperCase()}
+                </Text>
+              )}
+            </View>
+            <View style={styles.hostCopy}>
+              <Text style={styles.hostMessageEyebrow}>A MESSAGE FROM THE HOST</Text>
+              <Text numberOfLines={1} style={styles.hostName}>
+                {hostProfile ? getHostDisplayName(hostProfile) : "Event host"}
+              </Text>
+            </View>
+          </TouchableOpacity>
+          {currentUserId && currentUserId !== hostId ? (
+            <TouchableOpacity
+              disabled={followBusy}
+              onPress={() => void toggleFollow()}
+              style={[styles.followButton, isFollowing && styles.followingButton]}
+            >
+              <Text style={styles.followButtonText}>{followBusy ? "Saving..." : isFollowing ? "Following" : "Follow"}</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
         <Text style={styles.hostMessageText}>
           {loading ? "Opening the event archive..." : hostMessage || "Thanks for joining. This event has ended."}
         </Text>
@@ -175,8 +235,18 @@ const styles = StyleSheet.create({
   archive: { gap: 16 },
   emptyText: { color: "#8B849A", fontSize: 14, fontWeight: "700", lineHeight: 21, paddingVertical: 20, textAlign: "center" },
   hostMessageCard: { backgroundColor: "rgba(90,26,74,0.28)", borderColor: "rgba(255,131,184,0.24)", borderRadius: 18, borderWidth: 1, padding: 20 },
+  hostAvatar: { alignItems: "center", backgroundColor: "#7C3AED", borderColor: "rgba(255,255,255,0.2)", borderRadius: 999, borderWidth: 1, height: 48, justifyContent: "center", overflow: "hidden", width: 48 },
+  hostAvatarFallback: { color: "#FFFFFF", fontSize: 13, fontWeight: "900" },
+  hostAvatarImage: { height: "100%", width: "100%" },
+  hostCopy: { flex: 1 },
+  hostIdentity: { alignItems: "center", flex: 1, flexDirection: "row", gap: 11, minWidth: 180 },
   hostMessageEyebrow: { color: "#FF83B8", fontSize: 11, fontWeight: "900", letterSpacing: 1.2 },
   hostMessageText: { color: "#FFFFFF", fontSize: 19, fontWeight: "800", lineHeight: 28, marginTop: 10 },
+  hostName: { color: "#FFFFFF", fontSize: 13, fontWeight: "900", marginTop: 4 },
+  hostRow: { alignItems: "center", flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  followButton: { backgroundColor: "#EF2F91", borderRadius: 999, minWidth: 82, paddingHorizontal: 14, paddingVertical: 10 },
+  followButtonText: { color: "#FFFFFF", fontSize: 12, fontWeight: "900", textAlign: "center" },
+  followingButton: { backgroundColor: "rgba(255,255,255,0.07)", borderColor: "rgba(255,255,255,0.16)", borderWidth: 1 },
   linksCard: { backgroundColor: "#120B1A", borderColor: "rgba(196,154,255,0.22)", borderRadius: 18, borderWidth: 1, padding: 20 },
   linksCopy: { color: "#A1A1AA", fontSize: 14, fontWeight: "700", lineHeight: 21, marginBottom: 16, marginTop: 7 },
   linksTitle: { color: "#FFFFFF", fontSize: 23, fontWeight: "900", marginTop: 7 },
