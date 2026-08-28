@@ -11,9 +11,11 @@ export function notificationDestination(data: PushData) {
   const type = text(data.type);
   const roomId = text(data.roomId) ?? text(data.room_id);
   const missionId = text(data.missionId) ?? text(data.mission_id);
+  const triviaRoundId = text(data.triviaRoundId) ?? text(data.trivia_round_id);
 
   if (type === "recap_ready" && roomId) return `/recap/${roomId}`;
   if (type === "wild_result" && roomId) return `/room/${roomId}/wild`;
+  if (roomId && triviaRoundId) return `/room/${roomId}/trivia`;
   if (type === "mission_started" && roomId) {
     return missionId ? `/room/${roomId}?missionId=${encodeURIComponent(missionId)}` : `/room/${roomId}`;
   }

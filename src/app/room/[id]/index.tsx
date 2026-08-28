@@ -19,6 +19,7 @@ import { supabase } from "../../../../lib/supabase";
 import LiveKitRoomView from "../../../components/LiveKitRoomView";
 import RoomMissionCard from "../../../components/RoomMissionCard";
 import WildRoomCard from "../../../components/WildRoomCard";
+import LightningTriviaBanner from "../../../components/LightningTriviaBanner";
 import NotificationOptInCard from "../../../components/NotificationOptInCard";
 import EndedRoomArchive from "../../../components/EndedRoomArchive";
 import { getOrCreateEventMatchPool } from "../../../lib/matchmaking";
@@ -2073,6 +2074,7 @@ const requestedStreamers = [
           )}
 
           <WildRoomCard roomId={room.id} />
+          <LightningTriviaBanner roomId={room.id} />
           <RoomMissionCard roomId={room.id} requestedMissionId={requestedMissionId} />
           <NotificationOptInCard />
 

@@ -180,7 +180,7 @@ export default function RoomMissionCard({ roomId, requestedMissionId }: { roomId
     return () => { active = false; if (timeout) clearTimeout(timeout); };
   }, [guestToken, mission, mode]);
 
-  if (!mission) return null;
+  if (!mission || mission.mission_type === "lightning_trivia") return null;
   const remaining = now ? getMissionTimeRemaining(mission.ends_at, now) : null;
   const isAnimalPack = mission.mission_type === "animal_pack";
   const isConnection = mission.mission_type === "connection";
