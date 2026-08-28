@@ -31,7 +31,7 @@ export default function AuthCallback() {
         const { data: profile, error: profileError } = await supabase
           .from("profiles")
           .select("username")
-          .eq("id", userId)
+          .or(`auth_user_id.eq.${userId},id.eq.${userId}`)
           .maybeSingle();
 
         if (profileError) throw profileError;

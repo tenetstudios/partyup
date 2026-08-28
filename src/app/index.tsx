@@ -1,5 +1,5 @@
 import { router } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AntDesign } from "@expo/vector-icons";
 import {
   Alert,
@@ -34,7 +34,7 @@ async function routeSignedInUser(user: RoutableUser) {
   const { data: profile } = await supabase
     .from("profiles")
     .select("username")
-    .eq("id", user.id)
+    .or(`auth_user_id.eq.${user.id},id.eq.${user.id}`)
     .maybeSingle();
 
   router.replace(profile?.username ? "/home" : "/profile");
@@ -42,18 +42,20 @@ async function routeSignedInUser(user: RoutableUser) {
 
 export default function Index() {
   const [loading, setLoading] = useState(false);
+  const mountedRef = useRef(true);
+  const routedRef = useRef(false);
 
   useEffect(() => {
   let mounted = true;
-  let routed = false;
+  mountedRef.current = true;
 
   async function loadSavedSession() {
   const { data } = await supabase.auth.getSession();
   const user = data.session?.user;
 
-  if (!mounted || !user) return;
+  if (!mounted || !user || routedRef.current) return;
 
-  routed = true;
+  routedRef.current = true;
 await routeSignedInUser(user);
 }
 
@@ -63,14 +65,15 @@ const {
   data: { subscription },
 } = supabase.auth.onAuthStateChange(async (_event, session) => {
   const user = session?.user;
-  if (!user || routed) return;
+  if (!user || routedRef.current) return;
 
-  routed = true;
+  routedRef.current = true;
   await routeSignedInUser(user);
 });
 
 return () => {
   mounted = false;
+  mountedRef.current = false;
   subscription.unsubscribe();
 };
 }, []);
@@ -134,7 +137,10 @@ if (!callbackUrl) {
 
   try {
     const signedInUser = await completeOAuthSession(callbackUrl);
-    await routeSignedInUser(signedInUser);
+    if (mountedRef.current && !routedRef.current) {
+      routedRef.current = true;
+      await routeSignedInUser(signedInUser);
+    }
   } catch (reason) {
     setLoading(false);
     Alert.alert(

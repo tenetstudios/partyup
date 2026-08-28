@@ -355,6 +355,11 @@ export default function Home() {
   const [selectedFilter, setSelectedFilter] = useState<(typeof FILTERS)[number]["label"]>("All");
   const [showCreateSheet, setShowCreateSheet] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const homeDataLoadRef = useRef<Promise<void> | null>(null);
+  const loadHomeDataOnceRef = useRef<(userId: string) => Promise<void>>(async () => undefined);
+  const notificationChannelNameRef = useRef(
+    `notifications-home-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
 
   useEffect(() => {
     if (showCreateSheet) {
@@ -382,6 +387,24 @@ export default function Home() {
     ? "Good afternoon,"
     : "Good evening,";
 
+  loadHomeDataOnceRef.current = function loadHomeDataOnce(userId: string) {
+    if (homeDataLoadRef.current) {
+      return homeDataLoadRef.current;
+    }
+
+    const loadPromise = (async () => {
+      await fetchProfile(userId);
+      await fetchRooms();
+    })().finally(() => {
+      if (homeDataLoadRef.current === loadPromise) {
+        homeDataLoadRef.current = null;
+      }
+    });
+
+    homeDataLoadRef.current = loadPromise;
+    return loadPromise;
+  };
+
   useFocusEffect(
     useCallback(() => {
       let active = true;
@@ -399,11 +422,7 @@ export default function Home() {
           return;
         }
 
-        await fetchProfile(userId);
-
-        if (active) {
-          await fetchRooms();
-        }
+        await loadHomeDataOnceRef.current(userId);
       }
 
       void reloadHomeOnFocus();
@@ -422,8 +441,7 @@ export default function Home() {
     if (!mounted || loaded) return;
 
     loaded = true;
-    await fetchProfile(userId);
-    await fetchRooms();
+    await loadHomeDataOnceRef.current(userId);
   }
 
   async function loadCurrentSession() {
@@ -507,10 +525,15 @@ useEffect(() => {
     } catch (error) {
       console.log("Event recap resolution error:", error);
     }
+
+    if (!mounted) return;
+
     await fetchUnreadCount(user.id);
 
+    if (!mounted) return;
+
     channel = supabase
-      .channel(`notifications-home-${user.id}`)
+      .channel(`${notificationChannelNameRef.current}-${user.id}`)
       .on(
         "postgres_changes",
         {
@@ -526,7 +549,11 @@ useEffect(() => {
       .subscribe();
   }
 
-  setupNotifications();
+  void setupNotifications().catch((error) => {
+    if (mounted) {
+      console.log("Notification setup error:", error);
+    }
+  });
 
   return () => {
     mounted = false;
@@ -615,8 +642,9 @@ const stats = useMemo(() => {
     .or(`auth_user_id.eq.${userId},id.eq.${userId}`)
     .maybeSingle();
 
-  console.log("PROFILE RESULT:", data);
-  console.log("PROFILE ERROR:", error);
+  if (error) {
+    console.log("Profile load error:", error.message);
+  }
 
   setProfile(data || null);
 }
