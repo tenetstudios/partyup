@@ -24,6 +24,7 @@ import RoomChatModerationSettings from "../../../components/RoomChatModerationSe
 import ClearRoomParticipantsCard from "../../../components/ClearRoomParticipantsCard";
 import RoomIdleLoopManager from "../../../components/RoomIdleLoopManager";
 import LightningTriviaManager from "../../../components/LightningTriviaManager";
+import RecapMediaManager from "../../../components/RecapMediaManager";
 
 type SettingsGroupKey = "experience" | "engagement" | "moderation" | "closeout";
 
@@ -961,6 +962,7 @@ async function saveAfterEventMessage() {
                 placeholderTextColor="#71717A"
                 style={styles.descriptionInput}
               />
+              <RecapMediaManager embedded roomId={room.id} />
               <TouchableOpacity style={styles.purplePillButton} disabled={closeoutBusy} onPress={() => void saveAfterEventMessage()}>
                 <Text style={styles.buttonText}>{closeoutBusy ? "Saving..." : "Save Message"}</Text>
               </TouchableOpacity>
@@ -1291,6 +1293,7 @@ async function saveAfterEventMessage() {
                       placeholderTextColor="#71717A"
                       style={styles.descriptionInput}
                     />
+                    <RecapMediaManager embedded roomId={room.id} />
                     <TouchableOpacity style={styles.endEventButton} onPress={endEvent}>
                       <Text style={styles.buttonText}>{closeoutBusy ? "Saving & ending..." : afterEventMessage.trim() ? "Save Message & End Event" : "End Event"}</Text>
                     </TouchableOpacity>
