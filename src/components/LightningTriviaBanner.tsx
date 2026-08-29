@@ -11,7 +11,7 @@ export default function LightningTriviaBanner({ roomId }: { roomId: string }) {
   useEffect(() => {
     void load();
     const clock = setInterval(() => setNow(Date.now()), 250);
-    const channel = supabase.channel(`mobile-trivia-banner-${roomId}`).on("postgres_changes", { event: "*", schema: "public", table: "trivia_rounds", filter: `room_id=eq.${roomId}` }, () => void load()).subscribe();
+    const channel = supabase.channel(`mobile-trivia-banner-${roomId}-${Date.now()}-${Math.random()}`).on("postgres_changes", { event: "*", schema: "public", table: "trivia_rounds", filter: `room_id=eq.${roomId}` }, () => void load()).subscribe();
     return () => { clearInterval(clock); void supabase.removeChannel(channel); };
   }, [load, roomId]);
   if (!round) return null;

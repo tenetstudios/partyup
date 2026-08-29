@@ -30,7 +30,7 @@ export default function LightningTriviaScreen() {
   useEffect(() => {
     void load().catch((reason) => setError(reason instanceof Error ? reason.message : "Could not load trivia."));
     const clock = setInterval(() => setNow(Date.now()), 50); const poll = setInterval(() => void load(), 2000);
-    const channel = supabase.channel(`mobile-trivia-${roomId}`).on("postgres_changes", { event: "*", schema: "public", table: "trivia_rounds", filter: `room_id=eq.${roomId}` }, () => void load()).subscribe();
+    const channel = supabase.channel(`mobile-trivia-${roomId}-${Date.now()}-${Math.random()}`).on("postgres_changes", { event: "*", schema: "public", table: "trivia_rounds", filter: `room_id=eq.${roomId}` }, () => void load()).subscribe();
     return () => { clearInterval(clock); clearInterval(poll); void supabase.removeChannel(channel); };
   }, [load, roomId]);
   const timeline = useMemo(() => state ? getTriviaTimeline(state.round.starts_at, state.round.seconds_per_question, state.round.feedback_ms, now) : null, [now, state]);

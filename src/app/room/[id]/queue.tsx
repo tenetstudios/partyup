@@ -1313,7 +1313,7 @@ async function saveAfterEventMessage() {
                 )}
               </SettingsGroup>
       
-       <TouchableOpacity onPress={() => router.push(`/room/${room.id}`)}>
+       <TouchableOpacity onPress={() => router.canGoBack() ? router.back() : router.replace(`/room/${room.id}`)}>
         <Text style={styles.back}>← Back to Room</Text>
       </TouchableOpacity>
 
