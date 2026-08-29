@@ -23,6 +23,7 @@ import WildHostManager from "../../../components/WildHostManager";
 import RoomChatModerationSettings from "../../../components/RoomChatModerationSettings";
 import ClearRoomParticipantsCard from "../../../components/ClearRoomParticipantsCard";
 import RoomIdleLoopManager from "../../../components/RoomIdleLoopManager";
+import LightningTriviaManager from "../../../components/LightningTriviaManager";
 
 type SettingsGroupKey = "experience" | "engagement" | "moderation" | "closeout";
 
@@ -1166,6 +1167,7 @@ async function saveAfterEventMessage() {
                   <>
                     <RoomAnnouncementEditor roomId={room.id} />
                     <WildHostManager roomId={room.id} />
+                    <LightningTriviaManager roomId={room.id} />
                     <RoomMissionManager roomId={room.id} isHost />
                   </>
                 ) : (
