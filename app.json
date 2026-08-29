@@ -2,7 +2,7 @@
   "expo": {
     "name": "PartyUp",
     "slug": "PartyUp",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "partyup",
@@ -63,7 +63,7 @@
       [
         "expo-media-library",
         {
-          "photosPermission": "Allow PartyUp to access photos when saving room posters.",
+          "photosPermission": false,
           "savePhotosPermission": "Allow PartyUp to save room QR posters to your photos.",
           "granularPermissions": []
         }
