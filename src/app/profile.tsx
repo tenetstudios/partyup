@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   Alert,
+  Linking,
   ScrollView,
   View,
   Text,
@@ -97,6 +98,14 @@ export default function Profile() {
         { text: "Delete Account", style: "destructive", onPress: () => void deleteAccount() },
       ],
     );
+  }
+
+  async function openAccountLink(url: string) {
+    try {
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert("Could not open link", "Please visit partyup.io in your browser.");
+    }
   }
 
   async function pickImage() {
@@ -292,6 +301,33 @@ export default function Profile() {
         <Text style={styles.accountSettingsTitle}>Account Settings</Text>
         <Text style={styles.accountSettingsCopy}>Manage your session or permanently delete your account.</Text>
 
+        <View style={styles.accountLinks}>
+          <TouchableOpacity
+            accessibilityRole="link"
+            style={styles.accountLink}
+            onPress={() => void openAccountLink("https://partyup.io/privacy")}
+          >
+            <Text style={styles.accountLinkText}>Privacy Policy</Text>
+            <Text style={styles.accountLinkArrow}>›</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            accessibilityRole="link"
+            style={styles.accountLink}
+            onPress={() => void openAccountLink("https://partyup.io/terms")}
+          >
+            <Text style={styles.accountLinkText}>Terms of Use</Text>
+            <Text style={styles.accountLinkArrow}>›</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            accessibilityRole="link"
+            style={[styles.accountLink, styles.accountLinkLast]}
+            onPress={() => void openAccountLink("https://partyup.io/contact")}
+          >
+            <Text style={styles.accountLinkText}>Support</Text>
+            <Text style={styles.accountLinkArrow}>›</Text>
+          </TouchableOpacity>
+        </View>
+
         <TouchableOpacity
   style={styles.signOutButton}
   onPress={async () => {
@@ -462,6 +498,36 @@ accountSettingsCopy: {
   fontSize: 13,
   lineHeight: 19,
   marginTop: 6,
+},
+accountLinks: {
+  backgroundColor: "#0D0D15",
+  borderColor: "#2A2140",
+  borderRadius: 12,
+  borderWidth: 1,
+  marginTop: 16,
+  overflow: "hidden",
+},
+accountLink: {
+  alignItems: "center",
+  borderBottomColor: "#2A2140",
+  borderBottomWidth: 1,
+  flexDirection: "row",
+  justifyContent: "space-between",
+  paddingHorizontal: 16,
+  paddingVertical: 14,
+},
+accountLinkLast: {
+  borderBottomWidth: 0,
+},
+accountLinkText: {
+  color: "#FFFFFF",
+  fontSize: 15,
+  fontWeight: "700",
+},
+accountLinkArrow: {
+  color: "#A78BFA",
+  fontSize: 24,
+  lineHeight: 24,
 },
 deleteAccountButton: {
   alignItems: "center",
