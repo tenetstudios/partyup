@@ -1,5 +1,4 @@
 import { router, useLocalSearchParams } from "expo-router";
-import * as Linking from "expo-linking";
 import * as MediaLibrary from "expo-media-library";
 import { Image } from "expo-image";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
@@ -157,7 +156,7 @@ function RoomDescriptionEditor({ roomId, embedded = false }: { roomId: string; e
 }
 
 function RoomEntryQrCard({ roomId, roomTitle, embedded = false }: { roomId: string; roomTitle: string; embedded?: boolean }) {
-  const entryUrl = Linking.createURL(`/room/${roomId}`);
+  const entryUrl = `https://partyup.io/join/${encodeURIComponent(roomId)}`;
   const posterRef = useRef<View>(null);
   const [posterWidth, setPosterWidth] = useState(0);
   const [downloading, setDownloading] = useState(false);

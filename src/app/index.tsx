@@ -1,9 +1,11 @@
 import { router } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { AntDesign } from "@expo/vector-icons";
+import * as AppleAuthentication from "expo-apple-authentication";
 import {
   Alert,
   ImageBackground,
+  Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -12,6 +14,7 @@ import {
 } from "react-native";
 import { supabase } from "../../lib/supabase";
 import * as WebBrowser from "expo-web-browser";
+import { signInWithApple } from "../lib/appleSignIn";
 import { completeOAuthSession } from "../lib/oauthSession";
 
 WebBrowser.maybeCompleteAuthSession();
@@ -153,6 +156,28 @@ if (!callbackUrl) {
 
 };
 
+  async function continueWithApple() {
+    if (loading || Platform.OS !== "ios") return;
+
+    setLoading(true);
+    try {
+      const user = await signInWithApple();
+      if (mountedRef.current && !routedRef.current) {
+        routedRef.current = true;
+        await routeSignedInUser(user);
+      }
+    } catch (reason) {
+      if ((reason as { code?: string })?.code !== "ERR_REQUEST_CANCELED") {
+        Alert.alert(
+          "Apple sign-in error",
+          reason instanceof Error ? reason.message : "Could not sign in with Apple.",
+        );
+      }
+    } finally {
+      if (mountedRef.current) setLoading(false);
+    }
+  }
+
   async function enterGuest() {
     try {
       setLoading(true);
@@ -190,7 +215,17 @@ if (!callbackUrl) {
           <Text style={styles.tagline}>Live events. Real people. Right now.</Text>
         </View>
 
-        <TouchableOpacity style={styles.googleButton} onPress={signInWithGoogle}>
+        {Platform.OS === "ios" ? (
+          <AppleAuthentication.AppleAuthenticationButton
+            buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
+            buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
+            cornerRadius={24}
+            style={styles.appleButton}
+            onPress={() => void continueWithApple()}
+          />
+        ) : null}
+
+        <TouchableOpacity style={styles.googleButton} onPress={signInWithGoogle} disabled={loading}>
           <AntDesign
             name="google"
             size={22}
@@ -203,7 +238,7 @@ if (!callbackUrl) {
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.button} onPress={enterGuest}>
+        <TouchableOpacity style={styles.button} onPress={enterGuest} disabled={loading}>
           <Text style={styles.buttonText}>
             {loading ? "Entering..." : "Enter as Guest"}
           </Text>
@@ -288,5 +323,11 @@ const styles = StyleSheet.create({
     color: "#111",
     fontWeight: "900",
     fontSize: 16,
+  },
+  appleButton: {
+    alignSelf: "center",
+    height: 48,
+    marginBottom: 14,
+    width: "72%",
   },
 });

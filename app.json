@@ -9,7 +9,11 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/images/icon.png",
-      "bundleIdentifier": "io.partyup.app"
+      "bundleIdentifier": "io.partyup.app",
+      "usesAppleSignIn": true,
+      "associatedDomains": [
+        "applinks:partyup.io"
+      ]
     },
     "android": {
       "googleServicesFile": "./google-services.json",
@@ -56,8 +60,17 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow PartyUp to scan temporary connection and Mission QR codes.",
+          "cameraPermission": "PartyUp uses your camera for video Match, livestreaming, and QR scanning.",
+          "microphonePermission": "PartyUp uses your microphone for voice during Match and audio during livestreams.",
           "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "PartyUp uses your photo library to choose photos and videos for profiles, rooms, recaps, and event Memories.",
+          "cameraPermission": "PartyUp uses your camera for video Match, livestreaming, and QR scanning.",
+          "microphonePermission": "PartyUp uses your microphone for voice during Match and audio during livestreams."
         }
       ],
       [
@@ -68,7 +81,16 @@
           "granularPermissions": []
         }
       ],
-      "expo-video"
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "PartyUp uses your location only when you choose Current Location while creating an event."
+        }
+      ],
+      "expo-video",
+      "expo-apple-authentication",
+      "@livekit/react-native-expo-plugin",
+      "@config-plugins/react-native-webrtc"
     ],
     "experiments": {
       "typedRoutes": true,

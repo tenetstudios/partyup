@@ -13,6 +13,7 @@ import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import { supabase } from "../../lib/supabase";
 import { disablePushNotifications } from "../../lib/pushNotifications";
+import { requestAccountDeletion } from "../lib/accountDeletion";
 import NotificationSettings from "../components/NotificationSettings";
 
 export default function Profile() {
@@ -21,6 +22,7 @@ export default function Profile() {
   const [bio, setBio] = useState("");
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     loadProfile();
@@ -43,11 +45,58 @@ export default function Profile() {
       return;
     }
 
+    const metadataName =
+      typeof user.user_metadata?.full_name === "string"
+        ? user.user_metadata.full_name.trim()
+        : "";
+
     if (data) {
-      setUsername(data.username || "");
+      setUsername(data.username || metadataName);
       setAvatarUrl(data.avatar_url || "");
       setBio(data.bio || "");
+    } else if (metadataName) {
+      setUsername(metadataName);
     }
+  }
+
+  async function deleteAccount() {
+    if (deleting) return;
+    setDeleting(true);
+
+    const result = await requestAccountDeletion();
+    setDeleting(false);
+
+    if (result.status === "completed") {
+      router.replace("/");
+      return;
+    }
+
+    if (result.status === "reauthentication_required") {
+      Alert.alert("Sign in again", result.message, [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Sign In Again",
+          onPress: () => {
+            void supabase.auth.signOut({ scope: "local" }).finally(() => router.replace("/"));
+          },
+        },
+      ]);
+      return;
+    }
+
+    const supportReference = result.requestId ? `\n\nSupport reference: ${result.requestId}` : "";
+    Alert.alert("Deletion failed", `${result.message}${supportReference}`);
+  }
+
+  function confirmAccountDeletion() {
+    Alert.alert(
+      "Delete Account",
+      "This permanently deletes your PartyUp account and removes or anonymizes its associated personal data. This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Delete Account", style: "destructive", onPress: () => void deleteAccount() },
+      ],
+    );
   }
 
   async function pickImage() {
@@ -239,6 +288,10 @@ export default function Profile() {
           <Text style={styles.skipText}>Skip for now</Text>
         </TouchableOpacity>
 
+        <View style={styles.accountDivider} />
+        <Text style={styles.accountSettingsTitle}>Account Settings</Text>
+        <Text style={styles.accountSettingsCopy}>Manage your session or permanently delete your account.</Text>
+
         <TouchableOpacity
   style={styles.signOutButton}
   onPress={async () => {
@@ -261,6 +314,14 @@ export default function Profile() {
 >
   <Text style={styles.signOutText}>Sign Out</Text>
 </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.deleteAccountButton, deleting && styles.disabledButton]}
+          disabled={deleting}
+          onPress={confirmAccountDeletion}
+        >
+          <Text style={styles.deleteAccountText}>{deleting ? "Deleting Account..." : "Delete Account"}</Text>
+        </TouchableOpacity>
       </View>
     </ScrollView>
   );
@@ -384,5 +445,38 @@ signOutText: {
   color: "#fff",
   fontSize: 16,
   fontWeight: "700",
+},
+accountDivider: {
+  backgroundColor: "#2A2140",
+  height: 1,
+  marginTop: 24,
+},
+accountSettingsTitle: {
+  color: "#FFFFFF",
+  fontSize: 18,
+  fontWeight: "900",
+  marginTop: 22,
+},
+accountSettingsCopy: {
+  color: "#9C95AA",
+  fontSize: 13,
+  lineHeight: 19,
+  marginTop: 6,
+},
+deleteAccountButton: {
+  alignItems: "center",
+  borderColor: "#FF6B6B",
+  borderRadius: 12,
+  borderWidth: 1,
+  marginTop: 12,
+  paddingVertical: 14,
+},
+deleteAccountText: {
+  color: "#FF8A8A",
+  fontSize: 16,
+  fontWeight: "800",
+},
+disabledButton: {
+  opacity: 0.55,
 },
 });

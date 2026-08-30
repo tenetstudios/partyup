@@ -2,6 +2,7 @@ import { useRouter } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
     Animated,
+    Platform,
     Pressable,
     ScrollView,
     StyleSheet,
@@ -121,7 +122,7 @@ export default function ExploreScreen() {
       <MapView
         ref={(ref) => { (mapRef as any).current = ref; }}
         style={styles.map}
-        provider={PROVIDER_GOOGLE}
+        provider={Platform.OS === "android" ? PROVIDER_GOOGLE : undefined}
         initialRegion={TORONTO_REGION}
         onPress={handleMapPress}
         customMapStyle={darkMapStyle}
