@@ -18,7 +18,7 @@
     "@livekit/react-native": "^2.10.3",
     "@livekit/react-native-expo-plugin": "1.0.2",
     "@livekit/react-native-webrtc": "144.1.2",
-    "@partyup/balloon-core": "git+https://github.com/tenetstudios/partyup-balloon-core.git#c00b37ec09e420c56653de28db8430b209fd147c",
+    "@partyup/balloon-core": "git+https://github.com/tenetstudios/partyup-balloon-core.git#4ed673eb4ed17d508cf10cdc87ebbc1a9d4b6d0a",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-navigation/bottom-tabs": "^7.15.5",
     "@react-navigation/elements": "^2.9.10",

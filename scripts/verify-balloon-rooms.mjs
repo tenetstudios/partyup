@@ -35,10 +35,20 @@ assert.equal(room.walls.length, 1);
 assert.equal(applyGameAction(room, { type: "REMOVE_WALL", wallSegmentId: wall.id }).applied, true);
 assert.equal(room.walls.length, 0);
 
+const exhaustRoom = createBalloonRoom("mobile-exhaustion");
+const exhaustWall = createWallSegment(exhaustRoom.id, "vertical", 3, 8);
+placeWall(exhaustRoom, exhaustWall);
+applyGameAction(exhaustRoom, { type: "PLACE_NAILS", wallSegmentId: exhaustWall.id });
+exhaustRoom.nailStrips[0].durability = 1;
+exhaustRoom.balloons.push(createBasicBalloon(exhaustRoom.id, "exhaustion-target", 2, "left"));
+updateRoomSimulation(exhaustRoom, 1);
+assert.equal(exhaustRoom.nailStrips.length, 0);
+assert.equal(exhaustRoom.walls.length, 1);
+
 const pathRoom = createBalloonRoom("mobile-path");
 placeWall(pathRoom, createWallSegment(pathRoom.id, "vertical", 3, 5));
 placeWall(pathRoom, createWallSegment(pathRoom.id, "horizontal", 2, 5));
 assert.ok(findPathToCeiling(getLaneCell(2), pathRoom.walls, "left")?.some((cell) => cell.column === 1));
 assert.equal(MAX_NAIL_STRIPS, 4);
 
-console.log("Mobile Balloon Rooms passed against @partyup/balloon-core: walls, routes, nails, durability, manual popping, and remove-first behavior.");
+console.log("Mobile Balloon Rooms passed against @partyup/balloon-core: walls, routes, automatic nail exhaustion, manual popping, and remove-first behavior.");
