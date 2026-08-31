@@ -1268,6 +1268,25 @@ async function syncRoomCounts(roomId: string) {
           </TouchableOpacity>
         </View>
 
+        {__DEV__ && (
+          <View style={styles.balloonTestCard}>
+            <View style={styles.balloonTestIcon}>
+              <Icon name="sparkles" size={24} color="#A7F3D0" />
+            </View>
+            <View style={styles.quickTextBlock}>
+              <Text style={styles.quickTitle}>Balloon Rooms</Text>
+              <Text style={styles.quickSubtitle}>Phase 3 shared-core test</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.matchTestButton}
+              onPress={() => router.push("/dev/balloon-rooms" as never)}
+            >
+              <Text style={styles.surpriseText}>Test</Text>
+              <Icon name="chevronRight" size={15} color="#A7F3D0" />
+            </TouchableOpacity>
+          </View>
+        )}
+
         <View style={styles.matchTestCard}>
           <View style={styles.quickIcon}>
             <Icon name="sparkles" size={24} color="#FDB4D4" />
@@ -2363,6 +2382,25 @@ const styles = StyleSheet.create({
     marginBottom: 32,
     marginTop: 12,
     padding: 14,
+  },
+  balloonTestCard: {
+    alignItems: "center",
+    backgroundColor: "#10231F",
+    borderColor: "#276B5A",
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 14,
+    marginTop: 12,
+    padding: 14,
+  },
+  balloonTestIcon: {
+    alignItems: "center",
+    backgroundColor: "#145C4B",
+    borderRadius: 14,
+    height: 50,
+    justifyContent: "center",
+    width: 50,
   },
   connectCard: {
     alignItems: "center",
