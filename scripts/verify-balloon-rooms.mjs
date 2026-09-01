@@ -9,6 +9,7 @@ import {
   HEAVY_BALLOON_HP,
   MAX_NAIL_STRIPS,
   NAIL_MAX_DURABILITY,
+  PRE_ROUND_COUNTDOWN_MS,
   SPEED_BALLOON_HP,
   applyGameAction,
   createBalloonRoom,
@@ -55,8 +56,9 @@ assert.equal(BALLOON_TYPES.heavy.maxHealth, HEAVY_BALLOON_HP);
 const waveRooms = [createBalloonRoom("mobile-wave-a"), createBalloonRoom("mobile-wave-b")];
 const waveState = createWaveState(601);
 const economyBeforeWave = waveRooms.map((waveRoom) => ({ ...waveRoom.economy }));
+assert.equal(updateWaveState(waveState, waveRooms, PRE_ROUND_COUNTDOWN_MS - 1).spawnedBalloons.length, 0);
 for (let sequence = 0; sequence < 20; sequence += 1) {
-  const update = updateWaveState(waveState, waveRooms, sequence * 700);
+  const update = updateWaveState(waveState, waveRooms, PRE_ROUND_COUNTDOWN_MS + sequence * 700);
   assert.equal(update.spawnedBalloons.length, 2);
   assert.equal(update.spawnedBalloons[0].spawnLane, update.spawnedBalloons[1].spawnLane);
   assert.equal(update.spawnedBalloons[0].source, "wave");

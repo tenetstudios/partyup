@@ -17,6 +17,7 @@ type BalloonRoomFieldProps = {
   debugPaths: boolean;
   damageFlash: boolean;
   onPressPosition?: (press: FieldPress) => void;
+  onLongPressPosition?: (press: FieldPress) => void;
 };
 
 function toPoint(x: number, y: number): { x: number; y: number } { return { x: x * viewBoxSize, y: y * viewBoxSize }; }
@@ -53,7 +54,7 @@ function NailVisual({ nail, wall }: { nail: NailStrip; wall: WallSegment }) {
   );
 }
 
-function BalloonRoomFieldComponent({ room, height, debugPaths, damageFlash, onPressPosition }: BalloonRoomFieldProps) {
+function BalloonRoomFieldComponent({ room, height, debugPaths, damageFlash, onPressPosition, onLongPressPosition }: BalloonRoomFieldProps) {
   const gradientIds = {
     basic: `balloon-basic-${room.id}`,
     speed: `balloon-speed-${room.id}`,
@@ -68,9 +69,14 @@ function BalloonRoomFieldComponent({ room, height, debugPaths, damageFlash, onPr
         if (!onPressPosition || width <= 0 || height <= 0) return;
         onPressPosition({ x: event.nativeEvent.locationX / width, y: event.nativeEvent.locationY / height, width, height });
       }}
+      onLongPress={(event) => {
+        if (!onLongPressPosition || width <= 0 || height <= 0) return;
+        onLongPressPosition({ x: event.nativeEvent.locationX / width, y: event.nativeEvent.locationY / height, width, height });
+      }}
+      delayLongPress={1000}
       accessible
-      accessibilityRole={onPressPosition ? "button" : undefined}
-      accessibilityLabel={`${room.id} playfield`}
+      accessibilityRole={onPressPosition || onLongPressPosition ? "button" : undefined}
+      accessibilityLabel={`${room.id} playfield. Tap balloons to pop. Hold one second on a grid edge to build.`}
     >
       <Svg width="100%" height="100%" viewBox={`0 0 ${viewBoxSize} ${viewBoxSize}`} preserveAspectRatio="none" pointerEvents="none">
         <Defs>

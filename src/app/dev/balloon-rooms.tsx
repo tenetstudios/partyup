@@ -42,14 +42,17 @@ function BalloonRoomsDevScreen() {
   const handleFieldPress = useCallback((key: BalloonRoomKey, press: FieldPress) => {
     const room = snapshot.rooms[key];
     const balloon = findBalloonAtPoint(room, press.x, press.y, 24 / Math.min(press.width, press.height));
-    if (balloon) {
-      const result = dispatchAction(key, { type: "POP_BALLOON", balloonId: balloon.id });
-      setFeedback({ message: result.message, valid: result.applied });
-      return;
-    }
+    if (!balloon) return;
+    const result = dispatchAction(key, { type: "POP_BALLOON", balloonId: balloon.id });
+    setFeedback({ message: result.message, valid: result.applied });
+  }, [dispatchAction, snapshot.rooms]);
+
+  const handleFieldLongPress = useCallback((key: BalloonRoomKey, press: FieldPress) => {
     if (key !== "yours") return;
+    const room = snapshot.rooms[key];
+    if (findBalloonAtPoint(room, press.x, press.y, 24 / Math.min(press.width, press.height))) return;
     const edge = findClosestGridEdge(press.x, press.y, press.width, press.height, 30);
-    if (!edge) { setFeedback({ message: "Tap a grid edge", valid: false }); return; }
+    if (!edge) { setFeedback({ message: "Hold directly on a grid edge", valid: false }); return; }
     const wall = createWallSegment(room.id, edge.orientation, edge.gridX, edge.gridY);
     let action: GameAction;
     if (buildMode === "wall") action = { type: "PLACE_WALL", wall };
@@ -94,8 +97,8 @@ function BalloonRoomsDevScreen() {
       <View style={styles.content}>
         <View style={styles.header}>
           <View style={styles.waveHeader}>
-            <Text style={styles.waveTitle}>{snapshot.wave.status === "complete" ? "ALL WAVES COMPLETE" : snapshot.wave.status === "transition" ? `ROUND ${snapshot.wave.roundId} COMPLETE` : `ROUND ${snapshot.wave.roundId}`}</Text>
-            <Text numberOfLines={1} style={styles.waveMeta}>{snapshot.wave.status === "transition" ? `NEXT IN ${snapshot.wave.nextRoundInSeconds}s` : currentRound ? `${currentRound.composition.map((entry) => `${entry.count} ${entry.balloonType[0].toUpperCase()}`).join(" · ")} · ${snapshot.wave.spawnedCount}/${snapshot.wave.totalCount}` : "PvP ACTIVE"}</Text>
+            <Text style={styles.waveTitle}>{snapshot.wave.status === "complete" ? "ALL WAVES COMPLETE" : snapshot.wave.status === "transition" ? `ROUND ${snapshot.wave.nextRoundId} STARTS IN ${snapshot.wave.nextRoundInSeconds}s` : `ROUND ${snapshot.wave.roundId}`}</Text>
+            <Text numberOfLines={1} style={styles.waveMeta}>{snapshot.wave.status === "transition" ? "BUILD WINDOW · HOLD 1s ON A GRID EDGE" : currentRound ? `${currentRound.composition.map((entry) => `${entry.count} ${entry.balloonType[0].toUpperCase()}`).join(" · ")} · ${snapshot.wave.spawnedCount}/${snapshot.wave.totalCount}` : "PvP ACTIVE"}</Text>
             {snapshot.wave.notice ? <Text numberOfLines={1} style={styles.waveNotice}>{snapshot.wave.notice}</Text> : null}
           </View>
           <View style={styles.headerButtons}>
@@ -106,7 +109,7 @@ function BalloonRoomsDevScreen() {
         <Pressable onPress={() => router.back()} hitSlop={8} style={styles.closeButton} accessibilityRole="button" accessibilityLabel="Close Balloon Rooms"><Text style={styles.closeButtonText}>×</Text></Pressable>
 
         <View style={styles.roomsRow}>
-          <RoomColumn label="YOUR ROOM" room={snapshot.rooms.yours} simulationTimeMs={snapshot.simulationTimeMs} height={fieldHeight} debugPaths={debugPaths} damageFlash={snapshot.damageFlash.yours} onPressPosition={(press) => handleFieldPress("yours", press)} />
+          <RoomColumn label="YOUR ROOM" room={snapshot.rooms.yours} simulationTimeMs={snapshot.simulationTimeMs} height={fieldHeight} debugPaths={debugPaths} damageFlash={snapshot.damageFlash.yours} onPressPosition={(press) => handleFieldPress("yours", press)} onLongPressPosition={(press) => handleFieldLongPress("yours", press)} />
           <RoomColumn label="OPPONENT" room={snapshot.rooms.opponent} simulationTimeMs={snapshot.simulationTimeMs} height={fieldHeight} debugPaths={debugPaths} damageFlash={snapshot.damageFlash.opponent} onPressPosition={(press) => handleFieldPress("opponent", press)} />
         </View>
 
@@ -119,7 +122,7 @@ function BalloonRoomsDevScreen() {
                 return <Pressable key={mode} disabled={disabled} onPress={() => { setBuildMode(mode); setFeedback(null); }} style={[styles.modeButton, buildMode === mode && styles.modeButtonSelected, disabled && styles.actionDisabled]} accessibilityRole="button" accessibilityState={{ selected: buildMode === mode, disabled }}><Text style={[styles.modeButtonText, buildMode === mode && styles.modeButtonTextSelected]}>{mode === "remove" ? "REMOVE" : `${mode.toUpperCase()} ${cost}`}</Text></Pressable>;
               })}
             </View>
-            <Text numberOfLines={1} ellipsizeMode="tail" style={[styles.feedback, feedback ? (feedback.valid ? styles.feedbackValid : styles.feedbackInvalid) : null]}>{feedback?.message ?? `W ${MAX_WALL_SEGMENTS - snapshot.rooms.yours.walls.length} · N ${MAX_NAIL_STRIPS - snapshot.rooms.yours.nailStrips.length}`}</Text>
+            <Text numberOfLines={1} ellipsizeMode="tail" style={[styles.feedback, feedback ? (feedback.valid ? styles.feedbackValid : styles.feedbackInvalid) : null]}>{feedback?.message ?? `Hold 1s to ${buildMode} · W ${MAX_WALL_SEGMENTS - snapshot.rooms.yours.walls.length} · N ${MAX_NAIL_STRIPS - snapshot.rooms.yours.nailStrips.length}`}</Text>
           </View>
           <View style={styles.controlPanel}>
             <View style={styles.balloonTypeRow}>
@@ -144,12 +147,12 @@ function BalloonRoomsDevScreen() {
   );
 }
 
-function RoomColumn({ label, room, simulationTimeMs, height, debugPaths, damageFlash, onPressPosition }: { label: string; room: BalloonRoom; simulationTimeMs: number; height: number; debugPaths: boolean; damageFlash: boolean; onPressPosition: (press: FieldPress) => void }) {
+function RoomColumn({ label, room, simulationTimeMs, height, debugPaths, damageFlash, onPressPosition, onLongPressPosition }: { label: string; room: BalloonRoom; simulationTimeMs: number; height: number; debugPaths: boolean; damageFlash: boolean; onPressPosition: (press: FieldPress) => void; onLongPressPosition?: (press: FieldPress) => void }) {
   const nextIncomeSeconds = Math.ceil(Math.max(0, room.economy.nextIncomeTickAt - simulationTimeMs) / 1000);
   return <View style={styles.roomColumn}>
     <Text numberOfLines={1} style={styles.roomLabel}>{label}</Text>
     <Text numberOfLines={1} style={styles.economyLine}>◉ {room.economy.coins} · +{room.economy.income}/{INCOME_TICK_INTERVAL_MS / 1000}s · {String(nextIncomeSeconds).padStart(2, "0")}s</Text>
-    <BalloonRoomField room={room} height={height} debugPaths={debugPaths} damageFlash={damageFlash} onPressPosition={onPressPosition} />
+    <BalloonRoomField room={room} height={height} debugPaths={debugPaths} damageFlash={damageFlash} onPressPosition={onPressPosition} onLongPressPosition={onLongPressPosition} />
     <View style={styles.statusPanel}>
       <View style={styles.healthRow}><Text style={room.health > 0 ? styles.health : styles.brokenText}>{room.health > 0 ? `HP ${room.health}/${ROOM_MAX_HEALTH}` : "BROKEN"}</Text><Text style={styles.activeCount}>{room.balloons.length} ACTIVE</Text></View>
       <View style={styles.healthTrack}><View style={[styles.healthFill, { width: `${(room.health / ROOM_MAX_HEALTH) * 100}%` }]} /></View>

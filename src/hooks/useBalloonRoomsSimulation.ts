@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  MAX_FRAME_DELTA_SECONDS, SIMULATION_STEP_SECONDS, applyGameAction, createBalloonRoom,
+  MAX_FRAME_DELTA_SECONDS, SIMULATION_STEP_SECONDS, WAVE_ROUNDS, applyGameAction, createBalloonRoom,
   createWallSegment, createWaveState, getCurrentWaveRound, updateRoomSimulation, updateWaveState, type BalloonRoom,
   type GameAction, type GameActionResult,
   type WaveState,
@@ -15,6 +15,7 @@ export type BalloonRoomsSnapshot = {
   wave: {
     status: WaveState["status"];
     roundId: number | null;
+    nextRoundId: number | null;
     spawnedCount: number;
     totalCount: number;
     nextRoundInSeconds: number;
@@ -56,6 +57,11 @@ function cloneRoom(room: BalloonRoom): BalloonRoom {
 
 function createSnapshot(rooms: BalloonRoomCollection, damageUntil: Record<BalloonRoomKey, number>, now: number, simulationTimeMs: number, waveState: WaveState, waveNotice: string | null): BalloonRoomsSnapshot {
   const round = getCurrentWaveRound(waveState);
+  const nextRoundIndex = waveState.status !== "transition"
+    ? waveState.roundIndex
+    : waveState.transitionFromRoundId === null
+      ? waveState.roundIndex
+      : waveState.roundIndex + 1;
   return {
     rooms: { yours: cloneRoom(rooms.yours), opponent: cloneRoom(rooms.opponent) },
     damageFlash: { yours: damageUntil.yours > now, opponent: damageUntil.opponent > now },
@@ -63,6 +69,7 @@ function createSnapshot(rooms: BalloonRoomCollection, damageUntil: Record<Balloo
     wave: {
       status: waveState.status,
       roundId: round?.id ?? null,
+      nextRoundId: WAVE_ROUNDS[nextRoundIndex]?.id ?? null,
       spawnedCount: waveState.spawnedCount,
       totalCount: round?.composition.reduce((sum, entry) => sum + entry.count, 0) ?? 0,
       nextRoundInSeconds: waveState.transitionEndsAt === null ? 0 : Math.max(0, Math.ceil((waveState.transitionEndsAt - simulationTimeMs) / 1000)),
