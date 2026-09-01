@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import {
+  BASIC_BALLOON_COST,
+  BASIC_BALLOON_INCOME_GAIN,
+  INCOME_TICK_INTERVAL_MS,
   BASIC_BALLOON_HP,
   MAX_NAIL_STRIPS,
   NAIL_MAX_DURABILITY,
@@ -15,6 +18,7 @@ import {
 } from "@partyup/balloon-core";
 
 const sendRoom = createBalloonRoom("mobile-send");
+const senderRoom = createBalloonRoom("mobile-sender");
 const send = (lane, senderSequence) => createSendBalloonAction({
   matchId: "mobile-verification",
   senderId: "mobile-player",
@@ -23,12 +27,16 @@ const send = (lane, senderSequence) => createSendBalloonAction({
   senderSequence,
   sentAt: senderSequence * 1000,
 });
-assert.equal(applyGameAction(sendRoom, send(4, 1)).applied, true);
+assert.equal(applyGameAction(senderRoom, send(4, 1), sendRoom).applied, true);
 assert.equal(sendRoom.balloons.length, 1);
 assert.equal(sendRoom.balloons[0].spawnLane, 4);
-assert.equal(applyGameAction(sendRoom, send(4, 2)).applied, true);
-assert.equal(applyGameAction(sendRoom, send(2, 3)).applied, true);
+assert.equal(applyGameAction(senderRoom, send(4, 2), sendRoom).applied, true);
+assert.equal(applyGameAction(senderRoom, send(2, 3), sendRoom).applied, true);
 assert.deepEqual(sendRoom.balloons.map((balloon) => balloon.spawnLane), [4, 4, 2]);
+assert.equal(senderRoom.economy.coins, 500 - 3 * BASIC_BALLOON_COST);
+assert.equal(senderRoom.economy.income, 100 + 3 * BASIC_BALLOON_INCOME_GAIN);
+applyGameAction(senderRoom, { type: "APPLY_INCOME_TICK", simulationTimeMs: INCOME_TICK_INTERVAL_MS });
+assert.equal(senderRoom.economy.coins, 540);
 
 const room = createBalloonRoom("mobile-smoke");
 const wall = createWallSegment(room.id, "vertical", 3, 8);
@@ -68,4 +76,4 @@ placeWall(pathRoom, createWallSegment(pathRoom.id, "horizontal", 2, 5));
 assert.ok(findPathToCeiling(getLaneCell(2), pathRoom.walls, "left")?.some((cell) => cell.column === 1));
 assert.equal(MAX_NAIL_STRIPS, 4);
 
-console.log("Mobile Balloon Rooms Phase 4 passed against @partyup/balloon-core: chosen-lane sends, walls, routes, automatic nail exhaustion, manual popping, and remove-first behavior.");
+console.log("Mobile Balloon Rooms Phase 5 passed against @partyup/balloon-core: shared economy, chosen-lane sends, walls, routes, automatic nail exhaustion, free manual popping, and no-refund removal.");
