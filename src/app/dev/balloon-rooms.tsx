@@ -110,7 +110,7 @@ function BalloonRoomsDevScreen() {
 
         <View style={styles.roomsRow}>
           <RoomColumn label="YOUR ROOM" room={snapshot.rooms.yours} simulationTimeMs={snapshot.simulationTimeMs} height={fieldHeight} debugPaths={debugPaths} damageFlash={snapshot.damageFlash.yours} onPressPosition={(press) => handleFieldPress("yours", press)} onLongPressPosition={(press) => handleFieldLongPress("yours", press)} />
-          <RoomColumn label="OPPONENT" room={snapshot.rooms.opponent} simulationTimeMs={snapshot.simulationTimeMs} height={fieldHeight} debugPaths={debugPaths} damageFlash={snapshot.damageFlash.opponent} onPressPosition={(press) => handleFieldPress("opponent", press)} />
+          <RoomColumn label="OPPONENT" room={snapshot.rooms.opponent} simulationTimeMs={snapshot.simulationTimeMs} height={fieldHeight} debugPaths={debugPaths} damageFlash={snapshot.damageFlash.opponent} invulnerable onPressPosition={(press) => handleFieldPress("opponent", press)} />
         </View>
 
         <View style={styles.controlPanelsRow}>
@@ -147,14 +147,14 @@ function BalloonRoomsDevScreen() {
   );
 }
 
-function RoomColumn({ label, room, simulationTimeMs, height, debugPaths, damageFlash, onPressPosition, onLongPressPosition }: { label: string; room: BalloonRoom; simulationTimeMs: number; height: number; debugPaths: boolean; damageFlash: boolean; onPressPosition: (press: FieldPress) => void; onLongPressPosition?: (press: FieldPress) => void }) {
+function RoomColumn({ label, room, simulationTimeMs, height, debugPaths, damageFlash, invulnerable = false, onPressPosition, onLongPressPosition }: { label: string; room: BalloonRoom; simulationTimeMs: number; height: number; debugPaths: boolean; damageFlash: boolean; invulnerable?: boolean; onPressPosition: (press: FieldPress) => void; onLongPressPosition?: (press: FieldPress) => void }) {
   const nextIncomeSeconds = Math.ceil(Math.max(0, room.economy.nextIncomeTickAt - simulationTimeMs) / 1000);
   return <View style={styles.roomColumn}>
     <Text numberOfLines={1} style={styles.roomLabel}>{label}</Text>
     <Text numberOfLines={1} style={styles.economyLine}>◉ {room.economy.coins} · +{room.economy.income}/{INCOME_TICK_INTERVAL_MS / 1000}s · {String(nextIncomeSeconds).padStart(2, "0")}s</Text>
     <BalloonRoomField room={room} height={height} debugPaths={debugPaths} damageFlash={damageFlash} onPressPosition={onPressPosition} onLongPressPosition={onLongPressPosition} />
     <View style={styles.statusPanel}>
-      <View style={styles.healthRow}><Text style={room.health > 0 ? styles.health : styles.brokenText}>{room.health > 0 ? `HP ${room.health}/${ROOM_MAX_HEALTH}` : "BROKEN"}</Text><Text style={styles.activeCount}>{room.balloons.length} ACTIVE</Text></View>
+      <View style={styles.healthRow}><Text style={room.health > 0 ? styles.health : styles.brokenText}>{invulnerable ? "HP ∞ · DEV" : room.health > 0 ? `HP ${room.health}/${ROOM_MAX_HEALTH}` : "BROKEN"}</Text><Text style={styles.activeCount}>{room.balloons.length} ACTIVE</Text></View>
       <View style={styles.healthTrack}><View style={[styles.healthFill, { width: `${(room.health / ROOM_MAX_HEALTH) * 100}%` }]} /></View>
     </View>
   </View>;

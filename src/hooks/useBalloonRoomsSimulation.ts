@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  MAX_FRAME_DELTA_SECONDS, SIMULATION_STEP_SECONDS, WAVE_ROUNDS, applyGameAction, createBalloonRoom,
+  MAX_FRAME_DELTA_SECONDS, ROOM_MAX_HEALTH, SIMULATION_STEP_SECONDS, WAVE_ROUNDS, applyGameAction, createBalloonRoom,
   createWallSegment, createWaveState, getCurrentWaveRound, updateRoomSimulation, updateWaveState, type BalloonRoom,
   type GameAction, type GameActionResult,
   type WaveState,
@@ -109,6 +109,7 @@ export function useBalloonRoomsSimulation(): {
           const targetRoom = roomsRef.current[key === "yours" ? "opponent" : "yours"];
           applyGameAction(room, { type: "APPLY_LAUNCH_QUEUE", simulationTimeMs: simulationTimeMsRef.current }, targetRoom);
           const events = updateRoomSimulation(room, SIMULATION_STEP_SECONDS);
+          if (key === "opponent") room.health = ROOM_MAX_HEALTH;
           if (events.some((event) => event.type === "balloon_escaped")) damageUntilRef.current[key] = now + 420;
         }
         const waveResult = updateWaveState(waveStateRef.current, roomKeys.map((key) => roomsRef.current[key]), simulationTimeMsRef.current);
