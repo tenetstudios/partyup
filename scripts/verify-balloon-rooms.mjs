@@ -1,21 +1,27 @@
 import assert from "node:assert/strict";
 import {
+  BALLOON_TYPES,
   BASIC_BALLOON_COST,
   BASIC_BALLOON_INCOME_GAIN,
   BASIC_BALLOON_LAUNCH_INTERVAL_MS,
   INCOME_TICK_INTERVAL_MS,
   BASIC_BALLOON_HP,
+  HEAVY_BALLOON_HP,
   MAX_NAIL_STRIPS,
   NAIL_MAX_DURABILITY,
+  SPEED_BALLOON_HP,
   applyGameAction,
   createBalloonRoom,
   createBasicBalloon,
+  createBalloon,
   createSendBalloonAction,
+  createWaveState,
   createWallSegment,
   findPathToCeiling,
   getLaneCell,
   placeWall,
   updateRoomSimulation,
+  updateWaveState,
 } from "@partyup/balloon-core";
 
 const sendRoom = createBalloonRoom("mobile-send");
@@ -43,6 +49,30 @@ assert.equal(senderRoom.economy.coins, 300 - 3 * BASIC_BALLOON_COST);
 assert.equal(senderRoom.economy.income, 30 + 3 * BASIC_BALLOON_INCOME_GAIN);
 applyGameAction(senderRoom, { type: "APPLY_INCOME_TICK", simulationTimeMs: INCOME_TICK_INTERVAL_MS });
 assert.equal(senderRoom.economy.coins, 264);
+
+assert.equal(BALLOON_TYPES.speed.maxHealth, SPEED_BALLOON_HP);
+assert.equal(BALLOON_TYPES.heavy.maxHealth, HEAVY_BALLOON_HP);
+const waveRooms = [createBalloonRoom("mobile-wave-a"), createBalloonRoom("mobile-wave-b")];
+const waveState = createWaveState(601);
+const economyBeforeWave = waveRooms.map((waveRoom) => ({ ...waveRoom.economy }));
+for (let sequence = 0; sequence < 20; sequence += 1) {
+  const update = updateWaveState(waveState, waveRooms, sequence * 700);
+  assert.equal(update.spawnedBalloons.length, 2);
+  assert.equal(update.spawnedBalloons[0].spawnLane, update.spawnedBalloons[1].spawnLane);
+  assert.equal(update.spawnedBalloons[0].source, "wave");
+}
+assert.deepEqual(waveRooms.map((waveRoom) => waveRoom.economy), economyBeforeWave);
+const mixedSender = createBalloonRoom("mobile-mixed-sender");
+const mixedTarget = createBalloonRoom("mobile-mixed-target");
+mixedSender.unlockedBalloonTypes.speed = true;
+mixedSender.unlockedBalloonTypes.heavy = true;
+for (const [index, balloonType] of ["basic", "speed", "heavy"].entries()) {
+  const action = createSendBalloonAction({ matchId: "mobile-mixed", senderId: "mobile-player", targetRoomId: mixedTarget.id, lane: [1, 4, 2][index], senderSequence: index + 1, sentAt: index * 100, balloonType });
+  assert.equal(applyGameAction(mixedSender, action, mixedTarget).applied, true);
+}
+assert.deepEqual(mixedSender.attack.queue.map((queued) => queued.balloonType), ["basic", "speed", "heavy"]);
+assert.equal(createBalloon("mobile", "speed", "speed", 1).health, 2);
+assert.equal(createBalloon("mobile", "heavy", "heavy", 1).roomDamage, 3);
 
 const room = createBalloonRoom("mobile-smoke");
 const wall = createWallSegment(room.id, "vertical", 3, 8);
@@ -82,4 +112,4 @@ placeWall(pathRoom, createWallSegment(pathRoom.id, "horizontal", 2, 5));
 assert.ok(findPathToCeiling(getLaneCell(2), pathRoom.walls, "left")?.some((cell) => cell.column === 1));
 assert.equal(MAX_NAIL_STRIPS, 4);
 
-console.log("Mobile Balloon Rooms Phase 5.1 passed against @partyup/balloon-core: slower shared economy, FIFO launch pacing, chosen lanes, walls, routes, automatic nail exhaustion, free manual popping, and no-refund removal.");
+console.log("Mobile Balloon Rooms Phase 6 passed against @partyup/balloon-core: deterministic equal waves, Speed/Heavy configs, mixed FIFO offense, shared economy, walls, routes, nails, and popping.");

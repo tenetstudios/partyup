@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   MAX_FRAME_DELTA_SECONDS, SIMULATION_STEP_SECONDS, applyGameAction, createBalloonRoom,
-  createWallSegment, updateRoomSimulation, type BalloonRoom,
+  createWallSegment, createWaveState, getCurrentWaveRound, updateRoomSimulation, updateWaveState, type BalloonRoom,
   type GameAction, type GameActionResult,
+  type WaveState,
 } from "@partyup/balloon-core";
 
 export type BalloonRoomKey = "yours" | "opponent";
@@ -11,6 +12,14 @@ export type BalloonRoomsSnapshot = {
   rooms: BalloonRoomCollection;
   damageFlash: Record<BalloonRoomKey, boolean>;
   simulationTimeMs: number;
+  wave: {
+    status: WaveState["status"];
+    roundId: number | null;
+    spawnedCount: number;
+    totalCount: number;
+    nextRoundInSeconds: number;
+    notice: string | null;
+  };
 };
 
 const roomKeys: BalloonRoomKey[] = ["yours", "opponent"];
@@ -29,6 +38,7 @@ function createRooms(): BalloonRoomCollection {
 function cloneRoom(room: BalloonRoom): BalloonRoom {
   return {
     ...room,
+    unlockedBalloonTypes: { ...room.unlockedBalloonTypes },
     economy: { ...room.economy },
     attack: { ...room.attack, queue: room.attack.queue.map((queued) => ({ ...queued })) },
     processedSendIds: [...room.processedSendIds],
@@ -44,11 +54,20 @@ function cloneRoom(room: BalloonRoom): BalloonRoom {
   };
 }
 
-function createSnapshot(rooms: BalloonRoomCollection, damageUntil: Record<BalloonRoomKey, number>, now: number, simulationTimeMs: number): BalloonRoomsSnapshot {
+function createSnapshot(rooms: BalloonRoomCollection, damageUntil: Record<BalloonRoomKey, number>, now: number, simulationTimeMs: number, waveState: WaveState, waveNotice: string | null): BalloonRoomsSnapshot {
+  const round = getCurrentWaveRound(waveState);
   return {
     rooms: { yours: cloneRoom(rooms.yours), opponent: cloneRoom(rooms.opponent) },
     damageFlash: { yours: damageUntil.yours > now, opponent: damageUntil.opponent > now },
     simulationTimeMs,
+    wave: {
+      status: waveState.status,
+      roundId: round?.id ?? null,
+      spawnedCount: waveState.spawnedCount,
+      totalCount: round?.composition.reduce((sum, entry) => sum + entry.count, 0) ?? 0,
+      nextRoundInSeconds: waveState.transitionEndsAt === null ? 0 : Math.max(0, Math.ceil((waveState.transitionEndsAt - simulationTimeMs) / 1000)),
+      notice: waveNotice,
+    },
   };
 }
 
@@ -61,8 +80,10 @@ export function useBalloonRoomsSimulation(): {
   const [initialDamageUntil] = useState<Record<BalloonRoomKey, number>>({ yours: 0, opponent: 0 });
   const roomsRef = useRef(initialRooms);
   const simulationTimeMsRef = useRef(0);
+  const waveStateRef = useRef<WaveState>(createWaveState(601));
+  const waveNoticeRef = useRef<string | null>(null);
   const damageUntilRef = useRef<Record<BalloonRoomKey, number>>(initialDamageUntil);
-  const [snapshot, setSnapshot] = useState<BalloonRoomsSnapshot>(() => createSnapshot(initialRooms, initialDamageUntil, 0, 0));
+  const [snapshot, setSnapshot] = useState<BalloonRoomsSnapshot>(() => createSnapshot(initialRooms, initialDamageUntil, 0, 0, createWaveState(601), null));
 
   useEffect(() => {
     let frameHandle = 0;
@@ -83,11 +104,15 @@ export function useBalloonRoomsSimulation(): {
           const events = updateRoomSimulation(room, SIMULATION_STEP_SECONDS);
           if (events.some((event) => event.type === "balloon_escaped")) damageUntilRef.current[key] = now + 420;
         }
+        const waveResult = updateWaveState(waveStateRef.current, roomKeys.map((key) => roomsRef.current[key]), simulationTimeMsRef.current);
+        if (waveResult.unlockedBalloonType) waveNoticeRef.current = `${waveResult.unlockedBalloonType.toUpperCase()} BALLOON UNLOCKED`;
+        else if (waveResult.completedRoundId !== null) waveNoticeRef.current = waveResult.allWavesComplete ? "ALL WAVES COMPLETE" : `ROUND ${waveResult.completedRoundId} COMPLETE`;
+        else if (waveResult.startedRoundId !== null) waveNoticeRef.current = null;
         accumulator -= SIMULATION_STEP_SECONDS;
       }
       if (now - previousRenderTime >= renderIntervalMs) {
         previousRenderTime = now;
-        setSnapshot(createSnapshot(roomsRef.current, damageUntilRef.current, now, simulationTimeMsRef.current));
+        setSnapshot(createSnapshot(roomsRef.current, damageUntilRef.current, now, simulationTimeMsRef.current, waveStateRef.current, waveNoticeRef.current));
       }
       frameHandle = requestAnimationFrame(frame);
     };
@@ -98,7 +123,7 @@ export function useBalloonRoomsSimulation(): {
   const dispatchAction = useCallback((roomKey: BalloonRoomKey, action: GameAction, targetRoomKey?: BalloonRoomKey): GameActionResult => {
     const targetRoom = targetRoomKey ? roomsRef.current[targetRoomKey] : undefined;
     const result = applyGameAction(roomsRef.current[roomKey], action, targetRoom);
-    if (result.applied) setSnapshot(createSnapshot(roomsRef.current, damageUntilRef.current, performance.now(), simulationTimeMsRef.current));
+    if (result.applied) setSnapshot(createSnapshot(roomsRef.current, damageUntilRef.current, performance.now(), simulationTimeMsRef.current, waveStateRef.current, waveNoticeRef.current));
     return result;
   }, []);
 
@@ -106,8 +131,10 @@ export function useBalloonRoomsSimulation(): {
     const rooms = createRooms();
     roomsRef.current = rooms;
     simulationTimeMsRef.current = 0;
+    waveStateRef.current = createWaveState(601);
+    waveNoticeRef.current = null;
     damageUntilRef.current = { yours: 0, opponent: 0 };
-    setSnapshot(createSnapshot(rooms, damageUntilRef.current, 0, 0));
+    setSnapshot(createSnapshot(rooms, damageUntilRef.current, 0, 0, waveStateRef.current, null));
   }, []);
 
   return { snapshot, dispatchAction, restart };
