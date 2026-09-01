@@ -1,11 +1,11 @@
 import { router } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
-  MAX_NAIL_STRIPS, MAX_WALL_SEGMENTS, ROOM_MAX_HEALTH, createWallSegment,
+  MAX_NAIL_STRIPS, MAX_WALL_SEGMENTS, ROOM_MAX_HEALTH, createSendBalloonAction, createWallSegment,
   findBalloonAtPoint, findClosestGridEdge, getUnsupportedHorizontalWalls, hasRequiredRoutes,
-  type BalloonRoom, type GameAction,
+  type BalloonRoom, type GameAction, type SpawnLane,
 } from "@partyup/balloon-core";
 import { BalloonRoomField, type FieldPress } from "@/components/balloonRooms/BalloonRoomField";
 import { useBalloonRoomsSimulation, type BalloonRoomKey } from "@/hooks/useBalloonRoomsSimulation";
@@ -22,9 +22,12 @@ export default function BalloonRoomsRoute() {
 function BalloonRoomsDevScreen() {
   const { height: windowHeight } = useWindowDimensions();
   const { snapshot, dispatchAction, restart } = useBalloonRoomsSimulation();
+  const sendSequenceRef = useRef(0);
   const [debugPaths, setDebugPaths] = useState(false);
   const [buildMode, setBuildMode] = useState<BuildMode>("wall");
+  const [selectedAttackLane, setSelectedAttackLane] = useState<SpawnLane>(1);
   const [feedback, setFeedback] = useState<{ message: string; valid: boolean } | null>(null);
+  const [sendFeedback, setSendFeedback] = useState("No balloons sent yet");
   const fieldHeight = Math.max(320, Math.min(500, windowHeight * 0.53));
 
   const handleFieldPress = useCallback((key: BalloonRoomKey, press: FieldPress) => {
@@ -47,36 +50,73 @@ function BalloonRoomsDevScreen() {
     setFeedback({ message: result.message, valid: result.applied });
   }, [buildMode, dispatchAction, snapshot.rooms]);
 
-  const restartGame = useCallback(() => { restart(); setFeedback(null); setBuildMode("wall"); }, [restart]);
+  const sendBalloon = useCallback(() => {
+    sendSequenceRef.current += 1;
+    const action = createSendBalloonAction({
+      matchId: "local-phase-4",
+      senderId: "mobile-local-player",
+      targetRoomId: snapshot.rooms.opponent.id,
+      lane: selectedAttackLane,
+      senderSequence: sendSequenceRef.current,
+      sentAt: Date.now(),
+    });
+    const result = dispatchAction("opponent", action);
+    if (!result.applied) {
+      sendSequenceRef.current -= 1;
+      setSendFeedback(`Rejected Lane ${selectedAttackLane}: ${result.message}`);
+      return;
+    }
+    setSendFeedback(`${action.balloonId} → Lane ${selectedAttackLane}`);
+  }, [dispatchAction, selectedAttackLane, snapshot.rooms.opponent.id]);
+
+  const restartGame = useCallback(() => {
+    restart();
+    sendSequenceRef.current = 0;
+    setFeedback(null);
+    setSendFeedback("No balloons sent yet");
+    setBuildMode("wall");
+    setSelectedAttackLane(1);
+  }, [restart]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
-          <View style={styles.titleBlock}><Text style={styles.eyebrow}>PHASE 3 · SHARED CORE</Text><Text style={styles.title}>BALLOON ROOMS</Text></View>
+          <View style={styles.titleBlock}><Text style={styles.eyebrow}>PHASE 4 · SHARED CORE</Text><Text style={styles.title}>BALLOON ROOMS</Text></View>
           <View style={styles.headerButtons}>
             <Pressable onPress={() => setDebugPaths((current) => !current)} style={[styles.smallButton, debugPaths && styles.smallButtonSelected]} accessibilityRole="button" accessibilityState={{ selected: debugPaths }}><Text style={styles.smallButtonText}>PATHS</Text></Pressable>
             <Pressable onPress={restartGame} style={styles.smallButton} accessibilityRole="button"><Text style={styles.smallButtonText}>RESTART</Text></Pressable>
           </View>
         </View>
         <Pressable onPress={() => router.back()} hitSlop={8}><Text style={styles.back}>← BACK</Text></Pressable>
-        <Text style={styles.instructions}>Tap any balloon for 1 damage. Choose a build mode, then tap an edge in your room.</Text>
+        <Text style={styles.instructions}>Defend your room, choose an opponent lane, and send Basic Balloons. Tap any balloon for 1 damage.</Text>
 
         <View style={styles.roomsRow}>
           <RoomColumn label="YOUR ROOM" room={snapshot.rooms.yours} height={fieldHeight} debugPaths={debugPaths} damageFlash={snapshot.damageFlash.yours} onPressPosition={(press) => handleFieldPress("yours", press)} />
           <RoomColumn label="OPPONENT ROOM" room={snapshot.rooms.opponent} height={fieldHeight} debugPaths={debugPaths} damageFlash={snapshot.damageFlash.opponent} onPressPosition={(press) => handleFieldPress("opponent", press)} />
         </View>
 
-        <View style={styles.controls}>
-          <View style={styles.modeRow}>
-            {(["wall", "nails", "remove"] as BuildMode[]).map((mode) => <Pressable key={mode} onPress={() => { setBuildMode(mode); setFeedback(null); }} style={[styles.modeButton, buildMode === mode && styles.modeButtonSelected]} accessibilityRole="button" accessibilityState={{ selected: buildMode === mode }}><Text style={[styles.modeButtonText, buildMode === mode && styles.modeButtonTextSelected]}>{mode.toUpperCase()}</Text></Pressable>)}
+        <View style={styles.controlPanelsRow}>
+          <View style={styles.controlPanel}>
+            <Text style={styles.controlTitle}>DEFEND · YOUR ROOM</Text>
+            <View style={styles.modeStack}>
+              {(["wall", "nails", "remove"] as BuildMode[]).map((mode) => <Pressable key={mode} onPress={() => { setBuildMode(mode); setFeedback(null); }} style={[styles.modeButton, buildMode === mode && styles.modeButtonSelected]} accessibilityRole="button" accessibilityState={{ selected: buildMode === mode }}><Text style={[styles.modeButtonText, buildMode === mode && styles.modeButtonTextSelected]}>{mode.toUpperCase()}</Text></Pressable>)}
+            </View>
+            <Text style={[styles.feedback, feedback ? (feedback.valid ? styles.feedbackValid : styles.feedbackInvalid) : null]}>{feedback?.message ?? `${MAX_WALL_SEGMENTS - snapshot.rooms.yours.walls.length} walls · ${MAX_NAIL_STRIPS - snapshot.rooms.yours.nailStrips.length} nails`}</Text>
+            <Text style={styles.removeHint}>Remove nails first, then wall.</Text>
           </View>
-          <Text style={[styles.feedback, feedback ? (feedback.valid ? styles.feedbackValid : styles.feedbackInvalid) : null]}>{feedback?.message ?? `${MAX_WALL_SEGMENTS - snapshot.rooms.yours.walls.length} walls · ${MAX_NAIL_STRIPS - snapshot.rooms.yours.nailStrips.length} nails available`}</Text>
-          <Text style={styles.removeHint}>REMOVE: first tap removes nails; second tap removes the wall.</Text>
+          <View style={styles.controlPanel}>
+            <Text style={styles.controlTitle}>ATTACK · OPPONENT</Text>
+            <View style={styles.laneGrid}>
+              {([1, 2, 3, 4] as SpawnLane[]).map((lane) => <Pressable key={lane} onPress={() => setSelectedAttackLane(lane)} style={[styles.laneButton, selectedAttackLane === lane && styles.laneButtonSelected]} accessibilityRole="button" accessibilityLabel={`Select attack Lane ${lane}`} accessibilityState={{ selected: selectedAttackLane === lane }}><Text style={[styles.laneButtonText, selectedAttackLane === lane && styles.laneButtonTextSelected]}>L{lane}</Text></Pressable>)}
+            </View>
+            <Pressable onPress={sendBalloon} disabled={snapshot.rooms.opponent.health <= 0} style={[styles.sendButton, snapshot.rooms.opponent.health <= 0 && styles.sendButtonDisabled]} accessibilityRole="button"><Text style={styles.sendButtonText}>SEND BASIC</Text></Pressable>
+            <Text numberOfLines={2} style={styles.sendFeedback}>Lane {selectedAttackLane} · {sendFeedback}</Text>
+          </View>
         </View>
 
         <View style={styles.debugPanel}>
-          <Text style={styles.debugText}>DEV · grid 6×10 · fixed 60 Hz simulation / 30 Hz visual snapshots</Text>
+          <Text style={styles.debugText}>DEV · grid 6×10 · fixed 60 Hz simulation / 30 Hz visual snapshots · auto-spawn off</Text>
           <Text style={styles.debugText}>{describeRoom("yours", snapshot.rooms.yours)} · {describeRoom("opponent", snapshot.rooms.opponent)}</Text>
         </View>
       </ScrollView>
@@ -118,7 +158,9 @@ const styles = StyleSheet.create({
   statusTop: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 3 }, statusLabel: { color: "#A1A1AA", fontSize: 8, fontWeight: "900", letterSpacing: 1 }, wallCount: { color: "#D8B4FE", fontSize: 8, fontWeight: "900", textAlign: "right" }, nailCount: { color: "#A7F3D0", fontSize: 7, fontWeight: "900", textAlign: "right", marginTop: 2 },
   healthRow: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", marginTop: 3 }, health: { color: "#FFFFFF", fontSize: 27, fontWeight: "900" }, healthMax: { color: "#71717A", fontSize: 11 }, activeCount: { color: "#71717A", fontSize: 8, fontWeight: "900" }, healthTrack: { height: 5, overflow: "hidden", borderRadius: 4, backgroundColor: "rgba(0,0,0,0.55)", marginTop: 4 }, healthFill: { height: "100%", borderRadius: 4, backgroundColor: "#C026D3" },
   brokenStatus: { flex: 1, minHeight: 68, alignItems: "center", justifyContent: "center" }, brokenText: { color: "#FCA5A5", fontSize: 15, fontWeight: "900" },
-  controls: { marginTop: 10, padding: 9, borderWidth: 1, borderColor: "rgba(221,194,255,0.18)", borderRadius: 11, backgroundColor: "rgba(23,16,32,0.96)" }, modeRow: { flexDirection: "row", gap: 6 }, modeButton: { flex: 1, minHeight: 48, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", borderRadius: 8, backgroundColor: "rgba(0,0,0,0.22)" }, modeButtonSelected: { borderColor: "#D8B4FE", backgroundColor: "rgba(139,61,255,0.36)" }, modeButtonText: { color: "#A1A1AA", fontSize: 10, fontWeight: "900" }, modeButtonTextSelected: { color: "#FFFFFF" }, feedback: { minHeight: 18, marginTop: 7, color: "#A1A1AA", fontSize: 10, fontWeight: "900", textAlign: "center" }, feedbackValid: { color: "#A7F3D0" }, feedbackInvalid: { color: "#FCA5A5" }, removeHint: { color: "#71717A", fontSize: 9, fontWeight: "700", textAlign: "center" },
+  controlPanelsRow: { flexDirection: "row", alignItems: "stretch", gap: 7, marginTop: 10 }, controlPanel: { flex: 1, padding: 8, borderWidth: 1, borderColor: "rgba(221,194,255,0.18)", borderRadius: 11, backgroundColor: "rgba(23,16,32,0.96)" }, controlTitle: { minHeight: 22, color: "#E9D5FF", fontSize: 9, fontWeight: "900", letterSpacing: 0.8, textAlign: "center" },
+  modeStack: { gap: 5 }, modeButton: { minHeight: 44, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", borderRadius: 8, backgroundColor: "rgba(0,0,0,0.22)" }, modeButtonSelected: { borderColor: "#D8B4FE", backgroundColor: "rgba(139,61,255,0.36)" }, modeButtonText: { color: "#A1A1AA", fontSize: 10, fontWeight: "900" }, modeButtonTextSelected: { color: "#FFFFFF" }, feedback: { minHeight: 28, marginTop: 7, color: "#A1A1AA", fontSize: 9, fontWeight: "900", textAlign: "center" }, feedbackValid: { color: "#A7F3D0" }, feedbackInvalid: { color: "#FCA5A5" }, removeHint: { color: "#71717A", fontSize: 8, fontWeight: "700", textAlign: "center" },
+  laneGrid: { flexDirection: "row", flexWrap: "wrap", gap: 5 }, laneButton: { width: "48%", minHeight: 44, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", borderRadius: 8, backgroundColor: "rgba(0,0,0,0.22)" }, laneButtonSelected: { borderColor: "#F9A8D4", backgroundColor: "rgba(219,39,119,0.36)" }, laneButtonText: { color: "#A1A1AA", fontSize: 11, fontWeight: "900" }, laneButtonTextSelected: { color: "#FFFFFF" }, sendButton: { minHeight: 48, marginTop: 7, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#F9A8D4", borderRadius: 8, backgroundColor: "#C026D3" }, sendButtonDisabled: { opacity: 0.4 }, sendButtonText: { color: "#FFFFFF", fontSize: 10, fontWeight: "900", letterSpacing: 0.7 }, sendFeedback: { minHeight: 28, marginTop: 6, color: "#A1A1AA", fontSize: 8, fontWeight: "800", lineHeight: 11, textAlign: "center" },
   debugPanel: { marginTop: 12, padding: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", borderRadius: 9, backgroundColor: "rgba(0,0,0,0.24)", gap: 3 }, debugText: { color: "#71717A", fontFamily: "monospace", fontSize: 9, lineHeight: 13 },
   unavailable: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 }, unavailableTitle: { color: "#FFFFFF", fontSize: 20, fontWeight: "900", textAlign: "center" }, secondaryButton: { minHeight: 48, marginTop: 22, paddingHorizontal: 20, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.2)", borderRadius: 10 }, secondaryButtonText: { color: "#D8B4FE", fontWeight: "900" },
 });

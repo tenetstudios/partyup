@@ -6,12 +6,29 @@ import {
   applyGameAction,
   createBalloonRoom,
   createBasicBalloon,
+  createSendBalloonAction,
   createWallSegment,
   findPathToCeiling,
   getLaneCell,
   placeWall,
   updateRoomSimulation,
 } from "@partyup/balloon-core";
+
+const sendRoom = createBalloonRoom("mobile-send");
+const send = (lane, senderSequence) => createSendBalloonAction({
+  matchId: "mobile-verification",
+  senderId: "mobile-player",
+  targetRoomId: sendRoom.id,
+  lane,
+  senderSequence,
+  sentAt: senderSequence * 1000,
+});
+assert.equal(applyGameAction(sendRoom, send(4, 1)).applied, true);
+assert.equal(sendRoom.balloons.length, 1);
+assert.equal(sendRoom.balloons[0].spawnLane, 4);
+assert.equal(applyGameAction(sendRoom, send(4, 2)).applied, true);
+assert.equal(applyGameAction(sendRoom, send(2, 3)).applied, true);
+assert.deepEqual(sendRoom.balloons.map((balloon) => balloon.spawnLane), [4, 4, 2]);
 
 const room = createBalloonRoom("mobile-smoke");
 const wall = createWallSegment(room.id, "vertical", 3, 8);
@@ -51,4 +68,4 @@ placeWall(pathRoom, createWallSegment(pathRoom.id, "horizontal", 2, 5));
 assert.ok(findPathToCeiling(getLaneCell(2), pathRoom.walls, "left")?.some((cell) => cell.column === 1));
 assert.equal(MAX_NAIL_STRIPS, 4);
 
-console.log("Mobile Balloon Rooms passed against @partyup/balloon-core: walls, routes, automatic nail exhaustion, manual popping, and remove-first behavior.");
+console.log("Mobile Balloon Rooms Phase 4 passed against @partyup/balloon-core: chosen-lane sends, walls, routes, automatic nail exhaustion, manual popping, and remove-first behavior.");

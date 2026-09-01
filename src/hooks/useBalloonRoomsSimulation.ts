@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   MAX_FRAME_DELTA_SECONDS, SIMULATION_STEP_SECONDS, applyGameAction, createBalloonRoom,
-  createDevBalloonSpawner, createWallSegment, placeNailStrip, placeWall,
-  updateDevBalloonSpawner, updateRoomSimulation, type BalloonRoom,
-  type DevBalloonSpawner, type GameAction, type GameActionResult,
+  createWallSegment, placeNailStrip, placeWall, updateRoomSimulation, type BalloonRoom,
+  type GameAction, type GameActionResult,
 } from "@partyup/balloon-core";
 
 export type BalloonRoomKey = "yours" | "opponent";
@@ -13,7 +12,6 @@ export type BalloonRoomsSnapshot = {
   damageFlash: Record<BalloonRoomKey, boolean>;
 };
 
-type SpawnerCollection = Record<BalloonRoomKey, DevBalloonSpawner>;
 const roomKeys: BalloonRoomKey[] = ["yours", "opponent"];
 const renderIntervalMs = 1000 / 30;
 
@@ -27,13 +25,10 @@ function createRooms(): BalloonRoomCollection {
   return { yours, opponent };
 }
 
-function createSpawners(): SpawnerCollection {
-  return { yours: createDevBalloonSpawner(410), opponent: createDevBalloonSpawner(920) };
-}
-
 function cloneRoom(room: BalloonRoom): BalloonRoom {
   return {
     ...room,
+    processedSendIds: [...room.processedSendIds],
     walls: room.walls.map((wall) => ({ ...wall })),
     nailStrips: room.nailStrips.map((nail) => ({ ...nail })),
     balloons: room.balloons.map((balloon) => ({
@@ -59,10 +54,8 @@ export function useBalloonRoomsSimulation(): {
   restart: () => void;
 } {
   const [initialRooms] = useState(createRooms);
-  const [initialSpawners] = useState(createSpawners);
   const [initialDamageUntil] = useState<Record<BalloonRoomKey, number>>({ yours: 0, opponent: 0 });
   const roomsRef = useRef(initialRooms);
-  const spawnersRef = useRef<SpawnerCollection>(initialSpawners);
   const damageUntilRef = useRef<Record<BalloonRoomKey, number>>(initialDamageUntil);
   const [snapshot, setSnapshot] = useState<BalloonRoomsSnapshot>(() => createSnapshot(initialRooms, initialDamageUntil, 0));
 
@@ -78,7 +71,6 @@ export function useBalloonRoomsSimulation(): {
       while (accumulator >= SIMULATION_STEP_SECONDS) {
         for (const key of roomKeys) {
           const room = roomsRef.current[key];
-          updateDevBalloonSpawner(room, spawnersRef.current[key], SIMULATION_STEP_SECONDS);
           const events = updateRoomSimulation(room, SIMULATION_STEP_SECONDS);
           if (events.some((event) => event.type === "balloon_escaped")) damageUntilRef.current[key] = now + 420;
         }
@@ -103,7 +95,6 @@ export function useBalloonRoomsSimulation(): {
   const restart = useCallback(() => {
     const rooms = createRooms();
     roomsRef.current = rooms;
-    spawnersRef.current = createSpawners();
     damageUntilRef.current = { yours: 0, opponent: 0 };
     setSnapshot(createSnapshot(rooms, damageUntilRef.current, 0));
   }, []);
