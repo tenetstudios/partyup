@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   BASIC_BALLOON_COST,
   BASIC_BALLOON_INCOME_GAIN,
+  BASIC_BALLOON_LAUNCH_INTERVAL_MS,
   INCOME_TICK_INTERVAL_MS,
   BASIC_BALLOON_HP,
   MAX_NAIL_STRIPS,
@@ -28,15 +29,20 @@ const send = (lane, senderSequence) => createSendBalloonAction({
   sentAt: senderSequence * 1000,
 });
 assert.equal(applyGameAction(senderRoom, send(4, 1), sendRoom).applied, true);
-assert.equal(sendRoom.balloons.length, 1);
-assert.equal(sendRoom.balloons[0].spawnLane, 4);
 assert.equal(applyGameAction(senderRoom, send(4, 2), sendRoom).applied, true);
 assert.equal(applyGameAction(senderRoom, send(2, 3), sendRoom).applied, true);
+assert.equal(sendRoom.balloons.length, 0);
+assert.deepEqual(senderRoom.attack.queue.map((queued) => queued.lane), [4, 4, 2]);
+applyGameAction(senderRoom, { type: "APPLY_LAUNCH_QUEUE", simulationTimeMs: 0 }, sendRoom);
+assert.equal(sendRoom.balloons.length, 1);
+assert.equal(applyGameAction(senderRoom, { type: "APPLY_LAUNCH_QUEUE", simulationTimeMs: BASIC_BALLOON_LAUNCH_INTERVAL_MS - 1 }, sendRoom).launchedBalloon, undefined);
+applyGameAction(senderRoom, { type: "APPLY_LAUNCH_QUEUE", simulationTimeMs: BASIC_BALLOON_LAUNCH_INTERVAL_MS }, sendRoom);
+applyGameAction(senderRoom, { type: "APPLY_LAUNCH_QUEUE", simulationTimeMs: BASIC_BALLOON_LAUNCH_INTERVAL_MS * 2 }, sendRoom);
 assert.deepEqual(sendRoom.balloons.map((balloon) => balloon.spawnLane), [4, 4, 2]);
-assert.equal(senderRoom.economy.coins, 500 - 3 * BASIC_BALLOON_COST);
-assert.equal(senderRoom.economy.income, 100 + 3 * BASIC_BALLOON_INCOME_GAIN);
+assert.equal(senderRoom.economy.coins, 300 - 3 * BASIC_BALLOON_COST);
+assert.equal(senderRoom.economy.income, 30 + 3 * BASIC_BALLOON_INCOME_GAIN);
 applyGameAction(senderRoom, { type: "APPLY_INCOME_TICK", simulationTimeMs: INCOME_TICK_INTERVAL_MS });
-assert.equal(senderRoom.economy.coins, 540);
+assert.equal(senderRoom.economy.coins, 264);
 
 const room = createBalloonRoom("mobile-smoke");
 const wall = createWallSegment(room.id, "vertical", 3, 8);
@@ -76,4 +82,4 @@ placeWall(pathRoom, createWallSegment(pathRoom.id, "horizontal", 2, 5));
 assert.ok(findPathToCeiling(getLaneCell(2), pathRoom.walls, "left")?.some((cell) => cell.column === 1));
 assert.equal(MAX_NAIL_STRIPS, 4);
 
-console.log("Mobile Balloon Rooms Phase 5 passed against @partyup/balloon-core: shared economy, chosen-lane sends, walls, routes, automatic nail exhaustion, free manual popping, and no-refund removal.");
+console.log("Mobile Balloon Rooms Phase 5.1 passed against @partyup/balloon-core: slower shared economy, FIFO launch pacing, chosen lanes, walls, routes, automatic nail exhaustion, free manual popping, and no-refund removal.");

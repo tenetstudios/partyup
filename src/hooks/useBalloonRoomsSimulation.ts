@@ -30,6 +30,7 @@ function cloneRoom(room: BalloonRoom): BalloonRoom {
   return {
     ...room,
     economy: { ...room.economy },
+    attack: { ...room.attack, queue: room.attack.queue.map((queued) => ({ ...queued })) },
     processedSendIds: [...room.processedSendIds],
     walls: room.walls.map((wall) => ({ ...wall })),
     nailStrips: room.nailStrips.map((nail) => ({ ...nail })),
@@ -77,6 +78,8 @@ export function useBalloonRoomsSimulation(): {
         for (const key of roomKeys) {
           const room = roomsRef.current[key];
           applyGameAction(room, { type: "APPLY_INCOME_TICK", simulationTimeMs: simulationTimeMsRef.current });
+          const targetRoom = roomsRef.current[key === "yours" ? "opponent" : "yours"];
+          applyGameAction(room, { type: "APPLY_LAUNCH_QUEUE", simulationTimeMs: simulationTimeMsRef.current }, targetRoom);
           const events = updateRoomSimulation(room, SIMULATION_STEP_SECONDS);
           if (events.some((event) => event.type === "balloon_escaped")) damageUntilRef.current[key] = now + 420;
         }
