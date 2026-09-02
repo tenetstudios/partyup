@@ -17,7 +17,9 @@ import {
   PRE_ROUND_COUNTDOWN_MS,
   SPEED_BALLOON_HP,
   applyGameAction,
+  applyFloatMatchAction,
   createBalloonRoom,
+  createFloatMatch,
   createBasicBalloon,
   createBalloon,
   createSendBalloonAction,
@@ -146,4 +148,9 @@ assert.equal(applyGameAction(repairRoom, { type: "REPAIR_WALL", wallSegmentId: r
 assert.equal(repairWall.integrity, Math.min(WALL_MAX_INTEGRITY, WALL_REPAIR_THRESHOLD + WALL_REPAIR_AMOUNT));
 assert.equal(repairRoom.economy.coins, repairCoins - WALL_REPAIR_COST);
 
-console.log("Mobile Balloon Rooms Phase 7.1 passed against @partyup/balloon-core: paid contextual repair, shared structural damage, deterministic destruction, and prior systems.");
+const networkMatch = createFloatMatch({ matchId: "mobile-phase-8-1", playerIds: ["playerA", "playerB"], seed: 601 });
+assert.equal(applyFloatMatchAction(networkMatch, { type: "SEND_BALLOON", actorPlayerId: "playerA", targetPlayerId: "playerB", balloonType: "basic", lane: 4, senderSequence: 999, sentAt: 0 }).applied, true);
+assert.equal(networkMatch.players.playerA.nextSendSequence, 2);
+assert.equal(networkMatch.players.playerA.room.attack.queue[0].senderSequence, 1);
+
+console.log("Mobile Balloon Rooms Phase 8.1 passed against @partyup/balloon-core: canonical two-player send identity, paid repair, structural damage, and prior systems.");
