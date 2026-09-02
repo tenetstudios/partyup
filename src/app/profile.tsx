@@ -16,6 +16,7 @@ import { supabase } from "../../lib/supabase";
 import { disablePushNotifications } from "../../lib/pushNotifications";
 import { requestAccountDeletion } from "../lib/accountDeletion";
 import NotificationSettings from "../components/NotificationSettings";
+import { updateMyProfile } from "../../lib/profileUpdates";
 
 export default function Profile() {
   const [username, setUsername] = useState("");
@@ -208,28 +209,36 @@ export default function Profile() {
       return;
     }
 
-    const { error } = await supabase
-      .from("profiles")
-      .upsert(
-        {
-          id: user.id,
-          username: username.trim(),
-          avatar_url: avatarUrl.trim(),
-          bio: bio.trim(),
-        },
-        { onConflict: "id" }
-      )
-      .select();
+    try {
+      const result = await updateMyProfile(supabase, {
+        username,
+        avatarUrl: avatarUrl.trim(),
+        bio: bio.trim(),
+        updateDetails: true,
+      });
 
-    setSaving(false);
+      if (result.status !== "updated") {
+        Alert.alert(
+          result.status === "name_taken" ? "Name already taken" : "Profile save error",
+          result.message,
+        );
+        return;
+      }
 
-    if (error) {
-      Alert.alert("Profile save error", error.message);
-      return;
+      if (result.username) {
+        setUsername(result.username);
+      }
+
+      Alert.alert("Saved", result.message);
+      router.replace("/home");
+    } catch (error: unknown) {
+      Alert.alert(
+        "Profile save error",
+        error instanceof Error ? error.message : "Your profile could not be updated.",
+      );
+    } finally {
+      setSaving(false);
     }
-
-    Alert.alert("Saved", "Your profile was updated.");
-    router.replace("/home");
   }
 
   return (
@@ -269,11 +278,18 @@ export default function Profile() {
 
         <TextInput
           value={username}
-          onChangeText={setUsername}
-          placeholder="Username"
+          onChangeText={(value) => setUsername(value.slice(0, 40))}
+          placeholder="PartyUp name"
           placeholderTextColor="#777"
+          autoCapitalize="words"
+          autoCorrect={false}
+          maxLength={40}
           style={styles.input}
         />
+
+        <Text style={styles.nameHint}>
+          2–40 characters. PartyUp names are unique regardless of capitalization.
+        </Text>
 
         <TextInput
           value={bio}
@@ -399,6 +415,13 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 16,
     marginBottom: 16,
+  },
+  nameHint: {
+    color: "#9C95AA",
+    fontSize: 12,
+    lineHeight: 18,
+    marginBottom: 16,
+    marginTop: -8,
   },
   button: {
     backgroundColor: "#7C3AED",
