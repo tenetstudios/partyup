@@ -6,11 +6,12 @@ import {
   BALLOON_TYPES, GLUE_COST, INCOME_TICK_INTERVAL_MS, NAIL_STRIP_COST,
   MAX_LAUNCH_QUEUE_SIZE, MAX_NAIL_STRIPS, MAX_WALL_SEGMENTS, ROOM_MAX_HEALTH, createSendBalloonAction, createWallSegment,
   VERTICAL_WALL_COST, getWaveRound,
+  WALL_REPAIR_AMOUNT, WALL_REPAIR_COST, WALL_REPAIR_THRESHOLD,
   findBalloonAtPoint, findClosestGridEdge, getUnsupportedHorizontalWalls, hasRequiredRoutes,
   type BalloonRoom, type BalloonType, type GameAction, type SpawnLane,
 } from "@partyup/balloon-core";
 import { BalloonRoomField, type FieldPress } from "@/components/balloonRooms/BalloonRoomField";
-import { useBalloonRoomsSimulation, type BalloonRoomKey } from "@/hooks/useBalloonRoomsSimulation";
+import { useBalloonRoomsSimulation, type BalloonRoomKey, type StructuralVisualEffect } from "@/hooks/useBalloonRoomsSimulation";
 
 type BuildMode = "wall" | "nails" | "glue" | "remove";
 
@@ -27,24 +28,36 @@ function BalloonRoomsDevScreen() {
   const sendSequenceRef = useRef(0);
   const [debugPaths, setDebugPaths] = useState(false);
   const [buildMode, setBuildMode] = useState<BuildMode>("wall");
+  const [selectedWallId, setSelectedWallId] = useState<string | null>(null);
   const [selectedAttackLane, setSelectedAttackLane] = useState<SpawnLane>(1);
   const [selectedBalloonType, setSelectedBalloonType] = useState<BalloonType>("basic");
   const [feedback, setFeedback] = useState<{ message: string; valid: boolean } | null>(null);
   const [sendFeedback, setSendFeedback] = useState("");
-  const fieldHeight = Math.max(120, Math.min(430, windowHeight - 370));
+  const fieldHeight = Math.max(120, Math.min(430, windowHeight - 405));
   const launchQueue = snapshot.rooms.yours.attack.queue;
   const queueFull = launchQueue.length >= MAX_LAUNCH_QUEUE_SIZE;
   const selectedBalloonConfig = BALLOON_TYPES[selectedBalloonType];
   const insufficientSendCoins = snapshot.rooms.yours.economy.coins < selectedBalloonConfig.cost;
   const selectedBalloonLocked = !snapshot.rooms.yours.unlockedBalloonTypes[selectedBalloonType];
   const currentRound = snapshot.wave.roundId ? getWaveRound(snapshot.wave.roundId) : null;
+  const selectedWall = snapshot.rooms.yours.walls.find((wall) => wall.id === selectedWallId) ?? null;
+  const selectedWallRepairable = selectedWall !== null
+    && selectedWall.integrity > 0
+    && selectedWall.integrity <= WALL_REPAIR_THRESHOLD;
 
   const handleFieldPress = useCallback((key: BalloonRoomKey, press: FieldPress) => {
     const room = snapshot.rooms[key];
     const balloon = findBalloonAtPoint(room, press.x, press.y, 24 / Math.min(press.width, press.height));
-    if (!balloon) return;
-    const result = dispatchAction(key, { type: "POP_BALLOON", balloonId: balloon.id });
-    setFeedback({ message: result.message, valid: result.applied });
+    if (balloon) {
+      const result = dispatchAction(key, { type: "POP_BALLOON", balloonId: balloon.id });
+      setFeedback({ message: result.message, valid: result.applied });
+      return;
+    }
+    if (key !== "yours") return;
+    const edge = findClosestGridEdge(press.x, press.y, press.width, press.height, 42);
+    const candidateId = edge ? createWallSegment(room.id, edge.orientation, edge.gridX, edge.gridY).id : null;
+    setSelectedWallId(candidateId && room.walls.some((wall) => wall.id === candidateId) ? candidateId : null);
+    setFeedback(null);
   }, [dispatchAction, snapshot.rooms]);
 
   const handleFieldLongPress = useCallback((key: BalloonRoomKey, press: FieldPress) => {
@@ -83,12 +96,19 @@ function BalloonRoomsDevScreen() {
     setSendFeedback("");
   }, [dispatchAction, selectedAttackLane, selectedBalloonType, snapshot.rooms.opponent.id]);
 
+  const repairSelectedWall = useCallback(() => {
+    if (!selectedWallId) return;
+    const result = dispatchAction("yours", { type: "REPAIR_WALL", wallSegmentId: selectedWallId });
+    setFeedback({ message: result.message, valid: result.applied });
+  }, [dispatchAction, selectedWallId]);
+
   const restartGame = useCallback(() => {
     restart();
     sendSequenceRef.current = 0;
     setFeedback(null);
     setSendFeedback("");
     setBuildMode("wall");
+    setSelectedWallId(null);
     setSelectedAttackLane(1);
     setSelectedBalloonType("basic");
   }, [restart]);
@@ -110,8 +130,8 @@ function BalloonRoomsDevScreen() {
         <Pressable onPress={() => router.back()} hitSlop={8} style={styles.closeButton} accessibilityRole="button" accessibilityLabel="Close Balloon Rooms"><Text style={styles.closeButtonText}>×</Text></Pressable>
 
         <View style={styles.roomsRow}>
-          <RoomColumn label="YOUR ROOM" room={snapshot.rooms.yours} simulationTimeMs={snapshot.simulationTimeMs} height={fieldHeight} debugPaths={debugPaths} damageFlash={snapshot.damageFlash.yours} onPressPosition={(press) => handleFieldPress("yours", press)} onLongPressPosition={(press) => handleFieldLongPress("yours", press)} />
-          <RoomColumn label="OPPONENT" room={snapshot.rooms.opponent} simulationTimeMs={snapshot.simulationTimeMs} height={fieldHeight} debugPaths={debugPaths} damageFlash={snapshot.damageFlash.opponent} invulnerable onPressPosition={(press) => handleFieldPress("opponent", press)} />
+          <RoomColumn label="YOUR ROOM" room={snapshot.rooms.yours} simulationTimeMs={snapshot.simulationTimeMs} height={fieldHeight} debugPaths={debugPaths} damageFlash={snapshot.damageFlash.yours} structuralEffects={snapshot.structuralEffects.yours} selectedWallId={selectedWallId} onPressPosition={(press) => handleFieldPress("yours", press)} onLongPressPosition={(press) => handleFieldLongPress("yours", press)} />
+          <RoomColumn label="OPPONENT" room={snapshot.rooms.opponent} simulationTimeMs={snapshot.simulationTimeMs} height={fieldHeight} debugPaths={debugPaths} damageFlash={snapshot.damageFlash.opponent} structuralEffects={snapshot.structuralEffects.opponent} invulnerable onPressPosition={(press) => handleFieldPress("opponent", press)} />
         </View>
 
         <View style={styles.controlPanelsRow}>
@@ -123,6 +143,10 @@ function BalloonRoomsDevScreen() {
                 return <Pressable key={mode} disabled={disabled} onPress={() => { setBuildMode(mode); setFeedback(null); }} style={[styles.modeButton, buildMode === mode && styles.modeButtonSelected, disabled && styles.actionDisabled]} accessibilityRole="button" accessibilityState={{ selected: buildMode === mode, disabled }}><Text style={[styles.modeButtonText, buildMode === mode && styles.modeButtonTextSelected]}>{mode === "remove" ? "REMOVE" : `${mode.toUpperCase()} ${cost}`}</Text></Pressable>;
               })}
             </View>
+            {selectedWall ? <View style={styles.repairRow}>
+              <View style={styles.repairInfo}><Text numberOfLines={1} style={styles.repairTitle}>WALL {selectedWall.integrity}/{selectedWall.maxIntegrity}</Text><Text numberOfLines={1} style={styles.repairMeta}>{selectedWallRepairable ? `Restore +${WALL_REPAIR_AMOUNT}` : `Repair at ${WALL_REPAIR_THRESHOLD} or less`}</Text></View>
+              <Pressable onPress={repairSelectedWall} disabled={!selectedWallRepairable || snapshot.rooms.yours.economy.coins < WALL_REPAIR_COST} hitSlop={4} style={[styles.repairButton, (!selectedWallRepairable || snapshot.rooms.yours.economy.coins < WALL_REPAIR_COST) && styles.actionDisabled]} accessibilityRole="button" accessibilityLabel={`Repair selected wall for ${WALL_REPAIR_COST} coins`} accessibilityState={{ disabled: !selectedWallRepairable || snapshot.rooms.yours.economy.coins < WALL_REPAIR_COST }}><Text style={styles.repairButtonText}>{selectedWallRepairable && snapshot.rooms.yours.economy.coins < WALL_REPAIR_COST ? `NEED ${WALL_REPAIR_COST}` : `REPAIR +${WALL_REPAIR_AMOUNT} · ${WALL_REPAIR_COST}`}</Text></Pressable>
+            </View> : null}
             <Text numberOfLines={1} ellipsizeMode="tail" style={[styles.feedback, feedback ? (feedback.valid ? styles.feedbackValid : styles.feedbackInvalid) : null]}>{feedback?.message ?? `Hold 1s to ${buildMode} · W ${MAX_WALL_SEGMENTS - snapshot.rooms.yours.walls.length} · N ${MAX_NAIL_STRIPS - snapshot.rooms.yours.nailStrips.length} · G ${snapshot.rooms.yours.glueTraps.length}`}</Text>
           </View>
           <View style={styles.controlPanel}>
@@ -148,12 +172,12 @@ function BalloonRoomsDevScreen() {
   );
 }
 
-function RoomColumn({ label, room, simulationTimeMs, height, debugPaths, damageFlash, invulnerable = false, onPressPosition, onLongPressPosition }: { label: string; room: BalloonRoom; simulationTimeMs: number; height: number; debugPaths: boolean; damageFlash: boolean; invulnerable?: boolean; onPressPosition: (press: FieldPress) => void; onLongPressPosition?: (press: FieldPress) => void }) {
+function RoomColumn({ label, room, simulationTimeMs, height, debugPaths, damageFlash, structuralEffects, selectedWallId, invulnerable = false, onPressPosition, onLongPressPosition }: { label: string; room: BalloonRoom; simulationTimeMs: number; height: number; debugPaths: boolean; damageFlash: boolean; structuralEffects: StructuralVisualEffect[]; selectedWallId?: string | null; invulnerable?: boolean; onPressPosition: (press: FieldPress) => void; onLongPressPosition?: (press: FieldPress) => void }) {
   const nextIncomeSeconds = Math.ceil(Math.max(0, room.economy.nextIncomeTickAt - simulationTimeMs) / 1000);
   return <View style={styles.roomColumn}>
     <Text numberOfLines={1} style={styles.roomLabel}>{label}</Text>
     <Text numberOfLines={1} style={styles.economyLine}>◉ {room.economy.coins} · +{room.economy.income}/{INCOME_TICK_INTERVAL_MS / 1000}s · {String(nextIncomeSeconds).padStart(2, "0")}s</Text>
-    <BalloonRoomField room={room} height={height} debugPaths={debugPaths} damageFlash={damageFlash} onPressPosition={onPressPosition} onLongPressPosition={onLongPressPosition} />
+    <BalloonRoomField room={room} height={height} debugPaths={debugPaths} damageFlash={damageFlash} structuralEffects={structuralEffects} selectedWallId={selectedWallId} onPressPosition={onPressPosition} onLongPressPosition={onLongPressPosition} />
     <View style={styles.statusPanel}>
       <View style={styles.healthRow}><Text style={room.health > 0 ? styles.health : styles.brokenText}>{invulnerable ? "HP ∞ · DEV" : room.health > 0 ? `HP ${room.health}/${ROOM_MAX_HEALTH}` : "BROKEN"}</Text><Text style={styles.activeCount}>{room.balloons.length} ACTIVE</Text></View>
       <View style={styles.healthTrack}><View style={[styles.healthFill, { width: `${(room.health / ROOM_MAX_HEALTH) * 100}%` }]} /></View>
@@ -179,9 +203,10 @@ const styles = StyleSheet.create({
   economyLine: { height: 18, color: "#D4D4D8", fontSize: 8, fontWeight: "800", textAlign: "center" },
   statusPanel: { height: 32, paddingHorizontal: 5, paddingVertical: 4, borderWidth: 1, borderTopWidth: 0, borderColor: "rgba(221,194,255,0.22)", borderBottomLeftRadius: 8, borderBottomRightRadius: 8, backgroundColor: "rgba(23,16,32,0.96)" },
   healthRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, health: { color: "#FFFFFF", fontSize: 10, fontWeight: "900" }, activeCount: { color: "#71717A", fontSize: 7, fontWeight: "900" }, healthTrack: { height: 3, overflow: "hidden", borderRadius: 2, backgroundColor: "rgba(0,0,0,0.55)", marginTop: 3 }, healthFill: { height: "100%", borderRadius: 2, backgroundColor: "#C026D3" }, brokenText: { color: "#FCA5A5", fontSize: 9, fontWeight: "900" },
-  controlPanelsRow: { minHeight: 112, flexDirection: "row", alignItems: "stretch", gap: 5, marginTop: 5 }, controlPanel: { flex: 1, padding: 5, borderWidth: 1, borderColor: "rgba(221,194,255,0.18)", borderRadius: 8, backgroundColor: "rgba(23,16,32,0.96)" },
+  controlPanelsRow: { minHeight: 145, flexDirection: "row", alignItems: "stretch", gap: 5, marginTop: 5 }, controlPanel: { flex: 1, padding: 5, borderWidth: 1, borderColor: "rgba(221,194,255,0.18)", borderRadius: 8, backgroundColor: "rgba(23,16,32,0.96)" },
   actionRow: { flexDirection: "row", gap: 3 }, modeButton: { flex: 1, minHeight: 36, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", borderRadius: 6, backgroundColor: "rgba(0,0,0,0.22)" }, modeButtonSelected: { borderColor: "#D8B4FE", backgroundColor: "rgba(139,61,255,0.36)" }, modeButtonText: { color: "#A1A1AA", fontSize: 7, fontWeight: "900" }, modeButtonTextSelected: { color: "#FFFFFF" }, feedback: { minHeight: 15, marginTop: 4, color: "#71717A", fontSize: 7, fontWeight: "900", textAlign: "center" }, feedbackValid: { color: "#A7F3D0" }, feedbackInvalid: { color: "#FCA5A5" },
   actionDisabled: { opacity: 0.4 },
+  repairRow: { minHeight: 40, marginTop: 4, paddingLeft: 5, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 4, borderWidth: 1, borderColor: "rgba(253,230,138,0.25)", borderRadius: 6, backgroundColor: "rgba(253,230,138,0.08)" }, repairInfo: { flex: 1, minWidth: 0 }, repairTitle: { color: "#FEF3C7", fontSize: 8, fontWeight: "900" }, repairMeta: { color: "#A1A1AA", fontSize: 6, fontWeight: "800" }, repairButton: { minHeight: 36, minWidth: 72, paddingHorizontal: 6, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(253,230,138,0.65)", borderRadius: 5, backgroundColor: "rgba(253,230,138,0.15)" }, repairButtonText: { color: "#FEF3C7", fontSize: 7, fontWeight: "900" },
   balloonTypeRow: { flexDirection: "row", gap: 3, marginBottom: 4 }, balloonTypeButton: { flex: 1, minHeight: 26, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", borderRadius: 6, backgroundColor: "rgba(0,0,0,0.22)" }, balloonTypeButtonSelected: { borderColor: "#FDE68A", backgroundColor: "rgba(245,158,11,0.22)" }, balloonTypeText: { color: "#A1A1AA", fontSize: 7, fontWeight: "900" }, balloonTypeTextSelected: { color: "#FFFFFF" },
   laneRow: { flexDirection: "row", gap: 3 }, laneButton: { flex: 1, minHeight: 32, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", borderRadius: 6, backgroundColor: "rgba(0,0,0,0.22)" }, laneButtonSelected: { borderColor: "#F9A8D4", backgroundColor: "rgba(219,39,119,0.36)" }, laneButtonText: { color: "#A1A1AA", fontSize: 9, fontWeight: "900" }, laneButtonTextSelected: { color: "#FFFFFF" }, sendButton: { minHeight: 34, marginTop: 4, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#F9A8D4", borderRadius: 6, backgroundColor: "#C026D3" }, sendButtonDisabled: { opacity: 0.4 }, sendButtonText: { color: "#FFFFFF", fontSize: 8, fontWeight: "900", letterSpacing: 0.5 }, sendFeedback: { minHeight: 14, marginTop: 3, color: "#A1A1AA", fontSize: 7, fontWeight: "800", textAlign: "center" },
   debugPanel: { height: 20, marginTop: 4, paddingHorizontal: 5, justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", borderRadius: 6, backgroundColor: "rgba(0,0,0,0.2)" }, debugText: { color: "#52525B", fontFamily: "monospace", fontSize: 7 },

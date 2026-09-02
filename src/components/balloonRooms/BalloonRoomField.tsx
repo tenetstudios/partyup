@@ -16,6 +16,8 @@ type BalloonRoomFieldProps = {
   height: number;
   debugPaths: boolean;
   damageFlash: boolean;
+  structuralEffects: { id: string; wall: WallSegment; kind: "impact" | "collapse" }[];
+  selectedWallId?: string | null;
   onPressPosition?: (press: FieldPress) => void;
   onLongPressPosition?: (press: FieldPress) => void;
 };
@@ -56,7 +58,22 @@ function NailVisual({ nails, wall }: { nails: NailStrip[]; wall: WallSegment }) 
   );
 }
 
-function BalloonRoomFieldComponent({ room, height, debugPaths, damageFlash, onPressPosition, onLongPressPosition }: BalloonRoomFieldProps) {
+function WallVisual({ wall, selected }: { wall: WallSegment; selected: boolean }) {
+  const coordinates = wallCoordinates(wall);
+  const ratio = wall.integrity / wall.maxIntegrity;
+  const midpointX = (coordinates.x1 + coordinates.x2) / 2;
+  const midpointY = (coordinates.y1 + coordinates.y2) / 2;
+  const labelX = wall.orientation === "vertical" ? midpointX + 32 : midpointX;
+  const labelY = wall.orientation === "vertical" ? midpointY + 8 : midpointY - 20;
+  return <G>
+    {selected ? <Line {...coordinates} stroke="#FDE68A" strokeOpacity={0.88} strokeWidth={30} strokeLinecap="round" /> : null}
+    <Line {...coordinates} stroke={ratio <= 0.25 ? "#F97316" : ratio <= 0.6 ? "#D977FF" : "#C35DFF"} strokeOpacity={0.62 + ratio * 0.38} strokeWidth={16} strokeLinecap="round" />
+    {ratio < 0.8 ? <Line {...coordinates} stroke="rgba(10,5,18,0.72)" strokeWidth={5} strokeDasharray={ratio <= 0.3 ? "22 15" : "10 28"} /> : null}
+    {wall.integrity < wall.maxIntegrity ? <SvgText x={labelX} y={labelY} fill="#FDE68A" fontSize={22} fontWeight="900" textAnchor="middle">{wall.integrity}/{wall.maxIntegrity}</SvgText> : null}
+  </G>;
+}
+
+function BalloonRoomFieldComponent({ room, height, debugPaths, damageFlash, structuralEffects, selectedWallId, onPressPosition, onLongPressPosition }: BalloonRoomFieldProps) {
   const gradientIds = {
     basic: `balloon-basic-${room.id}`,
     speed: `balloon-speed-${room.id}`,
@@ -78,7 +95,7 @@ function BalloonRoomFieldComponent({ room, height, debugPaths, damageFlash, onPr
       delayLongPress={1000}
       accessible
       accessibilityRole={onPressPosition || onLongPressPosition ? "button" : undefined}
-      accessibilityLabel={`${room.id} playfield. Tap balloons to pop. Hold one second on a grid edge to build.`}
+      accessibilityLabel={`${room.id} playfield. Tap balloons to pop. Tap your walls to select repair options. Hold one second on a grid edge to build.`}
     >
       <Svg width="100%" height="100%" viewBox={`0 0 ${viewBoxSize} ${viewBoxSize}`} preserveAspectRatio="none" pointerEvents="none">
         <Defs>
@@ -95,9 +112,10 @@ function BalloonRoomFieldComponent({ room, height, debugPaths, damageFlash, onPr
           const points = [start, ...balloon.path.slice(1).map((cell) => { const center = getCellCenter(cell); return toPoint(center.x, center.y); })].map((point) => `${point.x},${point.y}`).join(" ");
           return points ? <Polyline key={`path-${balloon.id}`} points={points} fill="none" stroke={balloon.pathBias === "left" ? "rgba(125,211,252,0.48)" : "rgba(253,164,175,0.48)"} strokeWidth={5} strokeDasharray="10 12" /> : null;
         }) : null}
-        {room.walls.map((wall) => <Line key={wall.id} {...wallCoordinates(wall)} stroke="#C35DFF" strokeWidth={16} strokeLinecap="round" />)}
+        {room.walls.map((wall) => <WallVisual key={wall.id} wall={wall} selected={wall.id === selectedWallId} />)}
         {room.glueTraps.map((glue) => { const wall = room.walls.find((candidate) => candidate.id === glue.wallSegmentId); return wall ? <Line key={glue.id} {...wallCoordinates(wall)} stroke="#4ADE80" strokeWidth={26} strokeOpacity={0.72} strokeLinecap="round" /> : null; })}
         {room.walls.map((wall) => { const nails = room.nailStrips.filter((nail) => nail.wallSegmentId === wall.id); return nails.length > 0 ? <NailVisual key={`nails-${wall.id}`} nails={nails} wall={wall} /> : null; })}
+        {structuralEffects.map((effect) => <Line key={effect.id} {...wallCoordinates(effect.wall)} stroke={effect.kind === "collapse" ? "#FB7185" : "#FDE68A"} strokeWidth={effect.kind === "collapse" ? 28 : 24} strokeOpacity={0.72} strokeDasharray={effect.kind === "collapse" ? "32 18" : undefined} strokeLinecap="round" />)}
         {room.balloons.map((balloon) => {
           const center = toPoint(balloon.x, balloon.y);
           const rx = balloon.balloonType === "speed" ? 34 : balloon.balloonType === "heavy" ? 64 : 48;

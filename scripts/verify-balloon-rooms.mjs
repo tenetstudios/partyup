@@ -7,8 +7,13 @@ import {
   INCOME_TICK_INTERVAL_MS,
   BASIC_BALLOON_HP,
   HEAVY_BALLOON_HP,
+  HEAVY_DIRECT_STRUCTURAL_DAMAGE,
   MAX_NAIL_STRIPS,
   NAIL_MAX_DURABILITY,
+  WALL_MAX_INTEGRITY,
+  WALL_REPAIR_AMOUNT,
+  WALL_REPAIR_COST,
+  WALL_REPAIR_THRESHOLD,
   PRE_ROUND_COUNTDOWN_MS,
   SPEED_BALLOON_HP,
   applyGameAction,
@@ -18,9 +23,11 @@ import {
   createSendBalloonAction,
   createWaveState,
   createWallSegment,
+  damageWallStructure,
   findPathToCeiling,
   getLaneCell,
   placeWall,
+  updateBalloonPosition,
   updateRoomSimulation,
   updateWaveState,
 } from "@partyup/balloon-core";
@@ -117,4 +124,26 @@ placeWall(pathRoom, createWallSegment(pathRoom.id, "horizontal", 2, 5));
 assert.ok(findPathToCeiling(getLaneCell(2), pathRoom.walls, "left")?.some((cell) => cell.column === 1));
 assert.equal(MAX_NAIL_STRIPS, 4);
 
-console.log("Mobile Balloon Rooms Phase 6 passed against @partyup/balloon-core: deterministic equal waves, Speed/Heavy configs, mixed FIFO offense, shared economy, walls, routes, nails, and popping.");
+const structuralRoom = createBalloonRoom("mobile-phase-7");
+placeWall(structuralRoom, createWallSegment(structuralRoom.id, "vertical", 3, 8));
+const structuralSpan = createWallSegment(structuralRoom.id, "horizontal", 2, 9);
+placeWall(structuralRoom, structuralSpan);
+assert.deepEqual([structuralSpan.integrity, structuralSpan.maxIntegrity], [WALL_MAX_INTEGRITY, WALL_MAX_INTEGRITY]);
+const structuralHeavy = createBalloon(structuralRoom.id, "mobile-phase-7-heavy", "heavy", 2);
+structuralRoom.balloons.push(structuralHeavy);
+const structuralEvents = updateBalloonPosition(structuralRoom, structuralHeavy, 0.001);
+assert.equal(structuralSpan.integrity, WALL_MAX_INTEGRITY - HEAVY_DIRECT_STRUCTURAL_DAMAGE);
+assert.ok(structuralEvents.some((event) => event.type === "wall_damage" && event.impact === "direct"));
+damageWallStructure(structuralRoom, structuralSpan.id, structuralSpan.integrity);
+assert.equal(structuralRoom.walls.some((candidate) => candidate.id === structuralSpan.id), false);
+
+const repairRoom = createBalloonRoom("mobile-phase-7-1");
+const repairWall = createWallSegment(repairRoom.id, "vertical", 3, 9);
+placeWall(repairRoom, repairWall);
+repairWall.integrity = WALL_REPAIR_THRESHOLD;
+const repairCoins = repairRoom.economy.coins;
+assert.equal(applyGameAction(repairRoom, { type: "REPAIR_WALL", wallSegmentId: repairWall.id }).applied, true);
+assert.equal(repairWall.integrity, Math.min(WALL_MAX_INTEGRITY, WALL_REPAIR_THRESHOLD + WALL_REPAIR_AMOUNT));
+assert.equal(repairRoom.economy.coins, repairCoins - WALL_REPAIR_COST);
+
+console.log("Mobile Balloon Rooms Phase 7.1 passed against @partyup/balloon-core: paid contextual repair, shared structural damage, deterministic destruction, and prior systems.");
