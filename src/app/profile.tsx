@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import {
   Alert,
-  Linking,
   ScrollView,
   View,
   Text,
@@ -13,18 +12,15 @@ import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import { supabase } from "../../lib/supabase";
-import { disablePushNotifications } from "../../lib/pushNotifications";
-import { requestAccountDeletion } from "../lib/accountDeletion";
-import NotificationSettings from "../components/NotificationSettings";
 import { updateMyProfile } from "../../lib/profileUpdates";
 
-export default function Profile() {
+export function PublicProfileEditor({ onboarding = false }: { onboarding?: boolean }) {
   const [username, setUsername] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
   const [bio, setBio] = useState("");
+  const [location, setLocation] = useState("");
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     loadProfile();
@@ -38,7 +34,7 @@ export default function Profile() {
 
     const { data, error } = await supabase
       .from("profiles")
-      .select("username, avatar_url, bio")
+      .select("username, avatar_url, bio, location")
       .eq("id", user.id)
       .maybeSingle();
 
@@ -56,56 +52,9 @@ export default function Profile() {
       setUsername(data.username || metadataName);
       setAvatarUrl(data.avatar_url || "");
       setBio(data.bio || "");
+      setLocation(data.location || "");
     } else if (metadataName) {
       setUsername(metadataName);
-    }
-  }
-
-  async function deleteAccount() {
-    if (deleting) return;
-    setDeleting(true);
-
-    const result = await requestAccountDeletion();
-    setDeleting(false);
-
-    if (result.status === "completed") {
-      router.replace("/");
-      return;
-    }
-
-    if (result.status === "reauthentication_required") {
-      Alert.alert("Sign in again", result.message, [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Sign In Again",
-          onPress: () => {
-            void supabase.auth.signOut({ scope: "local" }).finally(() => router.replace("/"));
-          },
-        },
-      ]);
-      return;
-    }
-
-    const supportReference = result.requestId ? `\n\nSupport reference: ${result.requestId}` : "";
-    Alert.alert("Deletion failed", `${result.message}${supportReference}`);
-  }
-
-  function confirmAccountDeletion() {
-    Alert.alert(
-      "Delete Account",
-      "This permanently deletes your PartyUp account and removes or anonymizes its associated personal data. This cannot be undone.",
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Delete Account", style: "destructive", onPress: () => void deleteAccount() },
-      ],
-    );
-  }
-
-  async function openAccountLink(url: string) {
-    try {
-      await Linking.openURL(url);
-    } catch {
-      Alert.alert("Could not open link", "Please visit partyup.io in your browser.");
     }
   }
 
@@ -214,6 +163,7 @@ export default function Profile() {
         username,
         avatarUrl: avatarUrl.trim(),
         bio: bio.trim(),
+        location: location.trim(),
         updateDetails: true,
       });
 
@@ -230,7 +180,7 @@ export default function Profile() {
       }
 
       Alert.alert("Saved", result.message);
-      router.replace("/home");
+      if (onboarding) router.replace("/home");
     } catch (error: unknown) {
       Alert.alert(
         "Profile save error",
@@ -246,7 +196,7 @@ export default function Profile() {
       style={styles.page}
       contentContainerStyle={styles.container}
     >
-      <Text style={styles.title}>Choose your name</Text>
+      <Text style={styles.title}>{onboarding ? "Choose your name" : "Public Profile"}</Text>
 
       <TouchableOpacity
   onPress={() => router.back()}
@@ -255,11 +205,7 @@ export default function Profile() {
   <Text style={styles.closeButtonText}>✕</Text>
 </TouchableOpacity>
 
-      <Text style={styles.subtitle}>
-        This is how people see you in rooms.
-      </Text>
-
-      <NotificationSettings />
+      <Text style={styles.subtitle}>This is the information other people see across PartyUp.</Text>
 
       <View style={styles.card}>
         {avatarUrl ? (
@@ -293,11 +239,20 @@ export default function Profile() {
 
         <TextInput
           value={bio}
-          onChangeText={setBio}
+          onChangeText={(value) => setBio(value.slice(0, 280))}
           placeholder="Short bio"
           placeholderTextColor="#777"
           multiline
           style={[styles.input, { height: 100 }]}
+        />
+
+        <TextInput
+          value={location}
+          onChangeText={(value) => setLocation(value.slice(0, 80))}
+          placeholder="General location (city or region)"
+          placeholderTextColor="#777"
+          maxLength={80}
+          style={styles.input}
         />
 
         <TouchableOpacity style={styles.button} onPress={saveProfile}>
@@ -306,77 +261,18 @@ export default function Profile() {
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.skipButton}
-          onPress={() => router.replace("/home")}
-        >
-          <Text style={styles.skipText}>Skip for now</Text>
-        </TouchableOpacity>
-
-        <View style={styles.accountDivider} />
-        <Text style={styles.accountSettingsTitle}>Account Settings</Text>
-        <Text style={styles.accountSettingsCopy}>Manage your session or permanently delete your account.</Text>
-
-        <View style={styles.accountLinks}>
-          <TouchableOpacity
-            accessibilityRole="link"
-            style={styles.accountLink}
-            onPress={() => void openAccountLink("https://partyup.io/privacy")}
-          >
-            <Text style={styles.accountLinkText}>Privacy Policy</Text>
-            <Text style={styles.accountLinkArrow}>›</Text>
+        {onboarding && (
+          <TouchableOpacity style={styles.skipButton} onPress={() => router.replace("/home")}>
+            <Text style={styles.skipText}>Skip for now</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            accessibilityRole="link"
-            style={styles.accountLink}
-            onPress={() => void openAccountLink("https://partyup.io/terms")}
-          >
-            <Text style={styles.accountLinkText}>Terms of Use</Text>
-            <Text style={styles.accountLinkArrow}>›</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            accessibilityRole="link"
-            style={[styles.accountLink, styles.accountLinkLast]}
-            onPress={() => void openAccountLink("https://partyup.io/contact")}
-          >
-            <Text style={styles.accountLinkText}>Support</Text>
-            <Text style={styles.accountLinkArrow}>›</Text>
-          </TouchableOpacity>
-        </View>
-
-        <TouchableOpacity
-  style={styles.signOutButton}
-  onPress={async () => {
-    await disablePushNotifications().catch(() => undefined);
-    const { error } = await supabase.auth.signOut({ scope: "local" });
-
-    if (error) {
-      Alert.alert("Sign-out error", error.message);
-      return;
-    }
-
-    const { data } = await supabase.auth.getSession();
-    if (data.session) {
-      Alert.alert("Sign-out error", "The local session could not be cleared. Please try again.");
-      return;
-    }
-
-    router.replace("/");
-  }}
->
-  <Text style={styles.signOutText}>Sign Out</Text>
-</TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.deleteAccountButton, deleting && styles.disabledButton]}
-          disabled={deleting}
-          onPress={confirmAccountDeletion}
-        >
-          <Text style={styles.deleteAccountText}>{deleting ? "Deleting Account..." : "Delete Account"}</Text>
-        </TouchableOpacity>
+        )}
       </View>
     </ScrollView>
   );
+}
+
+export default function Profile() {
+  return <PublicProfileEditor onboarding />;
 }
 
 const styles = StyleSheet.create({

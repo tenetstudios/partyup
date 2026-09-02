@@ -1203,7 +1203,7 @@ async function syncRoomCounts(roomId: string) {
     color="#FFFFFF"/>
 </TouchableOpacity>
 
-            <TouchableOpacity style={styles.profileAvatar} onPress={() => router.push("/profile")}>
+            <TouchableOpacity style={styles.profileAvatar} onPress={() => router.push("/account" as never)}>
               {profile?.avatar_url ? (
                 <Image source={{ uri: profile.avatar_url }} style={styles.profileImage} />
               ) : (
@@ -1450,9 +1450,9 @@ async function syncRoomCounts(roomId: string) {
           <Text style={styles.navText}>Circle</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.navItem} onPress={() => router.push("/profile")}>
+        <TouchableOpacity style={styles.navItem} onPress={() => router.push("/account" as never)}>
           <Icon name="person" size={27} color="#A0A0AA" />
-          <Text style={styles.navText}>Profile</Text>
+          <Text style={styles.navText}>Account</Text>
         </TouchableOpacity>
       </View>
 

@@ -258,7 +258,9 @@ export default function UserProfile() {
 
           <View style={styles.profileFooter}>
             {currentUserId === profile.id ? (
-              <Text style={styles.selfNotice}>This is your public profile.</Text>
+              <TouchableOpacity style={styles.manageAccountButton} onPress={() => router.push("/account" as never)}>
+                <Text style={styles.manageAccountText}>Account Management</Text>
+              </TouchableOpacity>
             ) : (
               <>
                 <TouchableOpacity
@@ -669,6 +671,17 @@ const styles = StyleSheet.create({
   selfNotice: {
     color: "#A78BFA",
     fontSize: 14,
+  },
+  manageAccountButton: {
+    backgroundColor: "#7C3AED",
+    borderRadius: 999,
+    paddingHorizontal: 24,
+    paddingVertical: 13,
+  },
+  manageAccountText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "900",
   },
   hostEvidenceCard: {
     backgroundColor: "#11111A",
