@@ -1,13 +1,16 @@
 import { useEffect, useState } from "react";
-import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Alert, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { enablePushNotifications, getPushPermissionStatus } from "../../lib/pushNotifications";
 
 export default function NotificationOptInCard() {
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => { void getPushPermissionStatus().then((status) => setVisible(status !== "granted")); }, []);
-  if (!visible) return null;
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    void getPushPermissionStatus().then((status) => setVisible(status !== "granted"));
+  }, []);
+  if (Platform.OS === "web" || !visible) return null;
 
   return (
     <View style={styles.card}>

@@ -1,8 +1,7 @@
 import "react-native-url-polyfill/auto";
 
-import AsyncStorage from "@react-native-async-storage/async-storage";
-
 import { createClient } from "@supabase/supabase-js";
+import { supabaseAuthStorage } from "./authStorage";
 
 const supabaseUrl =
   "https://sgfbbytnmodbjxqesgxq.supabase.co";
@@ -15,9 +14,10 @@ export const supabase = createClient(
   supabaseAnonKey,
   {
     auth: {
-      storage: AsyncStorage,
+      storage: supabaseAuthStorage,
       autoRefreshToken: true,
       persistSession: true,
+      // PartyUp completes OAuth explicitly in src/lib/oauthSession on every platform.
       detectSessionInUrl: false,
     },
   }

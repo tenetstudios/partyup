@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Alert, StyleSheet, Switch, Text, TouchableOpacity, View } from "react-native";
+import { Alert, Platform, StyleSheet, Switch, Text, TouchableOpacity, View } from "react-native";
 import {
   disablePushNotifications,
   enablePushNotifications,
@@ -51,9 +51,13 @@ export default function NotificationSettings() {
           <Switch value={preferences[key]} onValueChange={(value) => void update(key, value)} trackColor={{ true: "#7C3AED" }} />
         </View>
       ))}
+      {Platform.OS === "web" ? (
+        <Text style={styles.webNotice}>Device push notifications are available in the iOS and Android app.</Text>
+      ) : (
       <TouchableOpacity disabled={busy} onPress={() => void toggleDevice()} style={styles.button}>
         <Text style={styles.buttonText}>{busy ? "Updating…" : permission === "granted" && preferences.enabled_devices > 0 ? "Disable on this device" : "Enable on this device"}</Text>
       </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -66,4 +70,5 @@ const styles = StyleSheet.create({
   label: { color: "white", fontWeight: "700" },
   button: { marginTop: 12, borderRadius: 999, borderWidth: 1, borderColor: "#6D28D9", paddingVertical: 12, alignItems: "center" },
   buttonText: { color: "#C4B5FD", fontWeight: "900" },
+  webNotice: { color: "#A9A1B6", fontSize: 12, lineHeight: 18, marginTop: 12 },
 });

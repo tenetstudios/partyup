@@ -1,12 +1,22 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
 import * as Device from "expo-device";
-import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 import { readStoredGuestSession } from "../src/lib/matchmaking";
 import { supabase } from "./supabase";
 
 const tokenStorageKey = "partyup_expo_push_token";
+
+async function getNativeNotifications() {
+  if (Platform.OS !== "android" && Platform.OS !== "ios") {
+    throw new Error("Push notifications are available on iOS and Android.");
+  }
+
+  return import("expo-notifications");
+}
+
+async function getNativeStorage() {
+  return (await import("@react-native-async-storage/async-storage")).default;
+}
 
 export type NotificationPreferences = {
   missions: boolean;
@@ -21,16 +31,21 @@ async function guestToken() {
 }
 
 export async function getStoredPushToken() {
-  return AsyncStorage.getItem(tokenStorageKey);
+  if (Platform.OS === "web") return null;
+  return (await getNativeStorage()).getItem(tokenStorageKey);
 }
 
 export async function getPushPermissionStatus() {
+  if (Platform.OS === "web") return "unsupported";
+  const Notifications = await getNativeNotifications();
   return (await Notifications.getPermissionsAsync()).status;
 }
 
 export async function enablePushNotifications() {
-  if (!Device.isDevice) throw new Error("Push notifications require a physical device.");
   if (Platform.OS !== "android" && Platform.OS !== "ios") throw new Error("Push notifications are available on iOS and Android.");
+  if (!Device.isDevice) throw new Error("Push notifications require a physical device.");
+
+  const Notifications = await getNativeNotifications();
 
   if (Platform.OS === "android") {
     await Notifications.setNotificationChannelAsync("partyup", {
@@ -56,11 +71,12 @@ export async function enablePushNotifications() {
     p_guest_token: await guestToken(),
   });
   if (error) throw new Error(error.message);
-  await AsyncStorage.setItem(tokenStorageKey, token);
+  await (await getNativeStorage()).setItem(tokenStorageKey, token);
   return token;
 }
 
 export async function disablePushNotifications() {
+  if (Platform.OS === "web") return;
   const token = await getStoredPushToken();
   if (!token) return;
   const { error } = await supabase.rpc("disable_push_device", {
@@ -68,7 +84,7 @@ export async function disablePushNotifications() {
     p_guest_token: await guestToken(),
   });
   if (error) throw new Error(error.message);
-  await AsyncStorage.removeItem(tokenStorageKey);
+  await (await getNativeStorage()).removeItem(tokenStorageKey);
 }
 
 export async function getNotificationPreferences(): Promise<NotificationPreferences> {
