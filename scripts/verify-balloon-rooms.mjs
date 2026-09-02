@@ -86,14 +86,17 @@ const balloon = createBasicBalloon(room.id, "mobile-balloon", 2, "left");
 room.balloons.push(balloon);
 const events = updateRoomSimulation(room, 1);
 assert.equal(events.filter((event) => event.type === "nail_contact").length, 1);
-assert.equal(balloon.health, BASIC_BALLOON_HP - 1);
-assert.equal(room.nailStrips[0].durability, NAIL_MAX_DURABILITY - 1);
+assert.equal(balloon.health, 0);
+assert.equal(room.nailStrips[0].durability, NAIL_MAX_DURABILITY - BASIC_BALLOON_HP);
 
-assert.equal(applyGameAction(room, { type: "POP_BALLOON", balloonId: balloon.id }).damage?.remainingHealth, 1);
-assert.equal(applyGameAction(room, { type: "POP_BALLOON", balloonId: balloon.id }).damage?.popped, true);
+const manualBalloon = createBasicBalloon(room.id, "mobile-manual", 4, "left");
+room.balloons.push(manualBalloon);
+assert.equal(applyGameAction(room, { type: "POP_BALLOON", balloonId: manualBalloon.id }).damage?.remainingHealth, 2);
+assert.equal(applyGameAction(room, { type: "POP_BALLOON", balloonId: manualBalloon.id }).damage?.remainingHealth, 1);
+assert.equal(applyGameAction(room, { type: "POP_BALLOON", balloonId: manualBalloon.id }).damage?.popped, true);
 assert.equal(room.balloons.length, 0);
 
-assert.equal(applyGameAction(room, { type: "REMOVE_WALL", wallSegmentId: wall.id }).message, "Nails removed; wall remains");
+assert.equal(applyGameAction(room, { type: "REMOVE_WALL", wallSegmentId: wall.id }).message, "One Nail Strip removed; wall remains");
 assert.equal(room.walls.length, 1);
 assert.equal(applyGameAction(room, { type: "REMOVE_WALL", wallSegmentId: wall.id }).applied, true);
 assert.equal(room.walls.length, 0);

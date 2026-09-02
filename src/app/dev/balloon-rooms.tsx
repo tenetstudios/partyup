@@ -3,16 +3,16 @@ import { useCallback, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
-  BALLOON_TYPES, INCOME_TICK_INTERVAL_MS, NAIL_STRIP_COST,
+  BALLOON_TYPES, GLUE_COST, INCOME_TICK_INTERVAL_MS, NAIL_STRIP_COST,
   MAX_LAUNCH_QUEUE_SIZE, MAX_NAIL_STRIPS, MAX_WALL_SEGMENTS, ROOM_MAX_HEALTH, createSendBalloonAction, createWallSegment,
-  VERTICAL_WALL_COST, WAVE_ROUNDS,
+  VERTICAL_WALL_COST, getWaveRound,
   findBalloonAtPoint, findClosestGridEdge, getUnsupportedHorizontalWalls, hasRequiredRoutes,
   type BalloonRoom, type BalloonType, type GameAction, type SpawnLane,
 } from "@partyup/balloon-core";
 import { BalloonRoomField, type FieldPress } from "@/components/balloonRooms/BalloonRoomField";
 import { useBalloonRoomsSimulation, type BalloonRoomKey } from "@/hooks/useBalloonRoomsSimulation";
 
-type BuildMode = "wall" | "nails" | "remove";
+type BuildMode = "wall" | "nails" | "glue" | "remove";
 
 export default function BalloonRoomsRoute() {
   if (!__DEV__) {
@@ -37,7 +37,7 @@ function BalloonRoomsDevScreen() {
   const selectedBalloonConfig = BALLOON_TYPES[selectedBalloonType];
   const insufficientSendCoins = snapshot.rooms.yours.economy.coins < selectedBalloonConfig.cost;
   const selectedBalloonLocked = !snapshot.rooms.yours.unlockedBalloonTypes[selectedBalloonType];
-  const currentRound = snapshot.wave.roundId ? WAVE_ROUNDS[snapshot.wave.roundId - 1] : null;
+  const currentRound = snapshot.wave.roundId ? getWaveRound(snapshot.wave.roundId) : null;
 
   const handleFieldPress = useCallback((key: BalloonRoomKey, press: FieldPress) => {
     const room = snapshot.rooms[key];
@@ -57,6 +57,7 @@ function BalloonRoomsDevScreen() {
     let action: GameAction;
     if (buildMode === "wall") action = { type: "PLACE_WALL", wall };
     else if (buildMode === "nails") action = { type: "PLACE_NAILS", wallSegmentId: wall.id };
+    else if (buildMode === "glue") action = { type: "PLACE_GLUE", wallSegmentId: wall.id };
     else action = { type: "REMOVE_WALL", wallSegmentId: wall.id };
     const result = dispatchAction("yours", action);
     setFeedback({ message: result.message, valid: result.applied });
@@ -116,13 +117,13 @@ function BalloonRoomsDevScreen() {
         <View style={styles.controlPanelsRow}>
           <View style={styles.controlPanel}>
             <View style={styles.actionRow}>
-              {(["wall", "nails", "remove"] as BuildMode[]).map((mode) => {
-                const cost = mode === "wall" ? VERTICAL_WALL_COST : mode === "nails" ? NAIL_STRIP_COST : null;
+              {(["wall", "nails", "glue", "remove"] as BuildMode[]).map((mode) => {
+                const cost = mode === "wall" ? VERTICAL_WALL_COST : mode === "nails" ? NAIL_STRIP_COST : mode === "glue" ? GLUE_COST : null;
                 const disabled = cost !== null && snapshot.rooms.yours.economy.coins < cost;
                 return <Pressable key={mode} disabled={disabled} onPress={() => { setBuildMode(mode); setFeedback(null); }} style={[styles.modeButton, buildMode === mode && styles.modeButtonSelected, disabled && styles.actionDisabled]} accessibilityRole="button" accessibilityState={{ selected: buildMode === mode, disabled }}><Text style={[styles.modeButtonText, buildMode === mode && styles.modeButtonTextSelected]}>{mode === "remove" ? "REMOVE" : `${mode.toUpperCase()} ${cost}`}</Text></Pressable>;
               })}
             </View>
-            <Text numberOfLines={1} ellipsizeMode="tail" style={[styles.feedback, feedback ? (feedback.valid ? styles.feedbackValid : styles.feedbackInvalid) : null]}>{feedback?.message ?? `Hold 1s to ${buildMode} · W ${MAX_WALL_SEGMENTS - snapshot.rooms.yours.walls.length} · N ${MAX_NAIL_STRIPS - snapshot.rooms.yours.nailStrips.length}`}</Text>
+            <Text numberOfLines={1} ellipsizeMode="tail" style={[styles.feedback, feedback ? (feedback.valid ? styles.feedbackValid : styles.feedbackInvalid) : null]}>{feedback?.message ?? `Hold 1s to ${buildMode} · W ${MAX_WALL_SEGMENTS - snapshot.rooms.yours.walls.length} · N ${MAX_NAIL_STRIPS - snapshot.rooms.yours.nailStrips.length} · G ${snapshot.rooms.yours.glueTraps.length}`}</Text>
           </View>
           <View style={styles.controlPanel}>
             <View style={styles.balloonTypeRow}>
@@ -164,7 +165,7 @@ function describeRoom(label: string, room: BalloonRoom): string {
   const vertical = room.walls.filter((wall) => wall.orientation === "vertical").length;
   const horizontal = room.walls.length - vertical;
   const supported = horizontal - getUnsupportedHorizontalWalls(room.walls).length;
-  return `${label} HP${room.health} B${room.balloons.length} V${vertical}/H${horizontal} (${supported} supported) N${room.nailStrips.length} routes ${hasRequiredRoutes(room, room.walls) ? "valid" : "invalid"}`;
+  return `${label} HP${room.health} B${room.balloons.length} V${vertical}/H${horizontal} (${supported} supported) N${room.nailStrips.length} G${room.glueTraps.length} routes ${hasRequiredRoutes(room, room.walls) ? "valid" : "invalid"}`;
 }
 
 const styles = StyleSheet.create({

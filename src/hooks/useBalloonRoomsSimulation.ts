@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  MAX_FRAME_DELTA_SECONDS, ROOM_MAX_HEALTH, SIMULATION_STEP_SECONDS, WAVE_ROUNDS, applyGameAction, createBalloonRoom,
-  createWallSegment, createWaveState, getCurrentWaveRound, updateRoomSimulation, updateWaveState, type BalloonRoom,
+  MAX_FRAME_DELTA_SECONDS, ROOM_MAX_HEALTH, SIMULATION_STEP_SECONDS, applyGameAction, createBalloonRoom,
+  createWallSegment, createWaveState, getCurrentWaveRound, getWaveRound, updateRoomSimulation, updateWaveState, type BalloonRoom,
   type GameAction, type GameActionResult,
   type WaveState,
 } from "@partyup/balloon-core";
@@ -33,6 +33,7 @@ function createRooms(): BalloonRoomCollection {
   applyGameAction(opponent, { type: "PLACE_WALL", wall: createWallSegment(opponent.id, "horizontal", 2, 5) });
   applyGameAction(opponent, { type: "PLACE_WALL", wall: createWallSegment(opponent.id, "horizontal", 3, 5) });
   applyGameAction(opponent, { type: "PLACE_NAILS", wallSegmentId: opponent.walls[1]!.id });
+  applyGameAction(opponent, { type: "PLACE_GLUE", wallSegmentId: opponent.walls[1]!.id });
   return { yours, opponent };
 }
 
@@ -45,6 +46,7 @@ function cloneRoom(room: BalloonRoom): BalloonRoom {
     processedSendIds: [...room.processedSendIds],
     walls: room.walls.map((wall) => ({ ...wall })),
     nailStrips: room.nailStrips.map((nail) => ({ ...nail })),
+    glueTraps: room.glueTraps.map((glue) => ({ ...glue })),
     balloons: room.balloons.map((balloon) => ({
       ...balloon,
       currentCell: { ...balloon.currentCell },
@@ -69,7 +71,7 @@ function createSnapshot(rooms: BalloonRoomCollection, damageUntil: Record<Balloo
     wave: {
       status: waveState.status,
       roundId: round?.id ?? null,
-      nextRoundId: WAVE_ROUNDS[nextRoundIndex]?.id ?? null,
+      nextRoundId: getWaveRound(nextRoundIndex + 1)?.id ?? null,
       spawnedCount: waveState.spawnedCount,
       totalCount: round?.composition.reduce((sum, entry) => sum + entry.count, 0) ?? 0,
       nextRoundInSeconds: waveState.transitionEndsAt === null ? 0 : Math.max(0, Math.ceil((waveState.transitionEndsAt - simulationTimeMs) / 1000)),

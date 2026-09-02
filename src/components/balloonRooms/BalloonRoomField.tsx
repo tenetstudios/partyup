@@ -31,10 +31,12 @@ function wallCoordinates(wall: WallSegment): { x1: number; y1: number; x2: numbe
   return { x1: (wall.gridX / GRID_COLUMNS) * viewBoxSize, y1: y, x2: ((wall.gridX + 1) / GRID_COLUMNS) * viewBoxSize, y2: y };
 }
 
-function NailVisual({ nail, wall }: { nail: NailStrip; wall: WallSegment }) {
+function NailVisual({ nails, wall }: { nails: NailStrip[]; wall: WallSegment }) {
   const coordinates = wallCoordinates(wall);
-  const ratio = nail.durability / nail.maxDurability;
-  const color = nail.status === "broken" ? "#71717A" : ratio <= 0.2 ? "#F87171" : ratio <= 0.6 ? "#FBBF24" : "#A7F3D0";
+  const totalDurability = nails.reduce((sum, nail) => sum + nail.durability, 0);
+  const totalMaximum = nails.reduce((sum, nail) => sum + nail.maxDurability, 0);
+  const ratio = totalDurability / totalMaximum;
+  const color = ratio <= 0.2 ? "#F87171" : ratio <= 0.6 ? "#FBBF24" : "#A7F3D0";
   const spikes = Array.from({ length: 4 }, (_, index) => {
     const progress = (index + 0.5) / 4;
     const x = coordinates.x1 + (coordinates.x2 - coordinates.x1) * progress;
@@ -47,9 +49,9 @@ function NailVisual({ nail, wall }: { nail: NailStrip; wall: WallSegment }) {
   const labelY = wall.orientation === "vertical" ? (coordinates.y1 + coordinates.y2) / 2 : coordinates.y1 - 30;
   return (
     <G>
-      <Line {...coordinates} stroke={color} strokeWidth={8} strokeDasharray={nail.status === "broken" ? "14 12" : undefined} />
-      {spikes.map((path, index) => <Path key={`${nail.id}-spike-${index}`} d={path} fill={color} opacity={nail.status === "broken" ? 0.55 : 1} />)}
-      <SvgText x={labelX} y={labelY} fill={color} fontSize={25} fontWeight="900" textAnchor="middle">{nail.durability}/{nail.maxDurability}</SvgText>
+      <Line {...coordinates} stroke={color} strokeWidth={8} />
+      {spikes.map((path, index) => <Path key={`${wall.id}-spike-${index}`} d={path} fill={color} />)}
+      <SvgText x={labelX} y={labelY} fill={color} fontSize={25} fontWeight="900" textAnchor="middle">×{nails.length} {totalDurability}</SvgText>
     </G>
   );
 }
@@ -94,13 +96,14 @@ function BalloonRoomFieldComponent({ room, height, debugPaths, damageFlash, onPr
           return points ? <Polyline key={`path-${balloon.id}`} points={points} fill="none" stroke={balloon.pathBias === "left" ? "rgba(125,211,252,0.48)" : "rgba(253,164,175,0.48)"} strokeWidth={5} strokeDasharray="10 12" /> : null;
         }) : null}
         {room.walls.map((wall) => <Line key={wall.id} {...wallCoordinates(wall)} stroke="#C35DFF" strokeWidth={16} strokeLinecap="round" />)}
-        {room.nailStrips.map((nail) => { const wall = room.walls.find((candidate) => candidate.id === nail.wallSegmentId); return wall ? <NailVisual key={nail.id} nail={nail} wall={wall} /> : null; })}
+        {room.glueTraps.map((glue) => { const wall = room.walls.find((candidate) => candidate.id === glue.wallSegmentId); return wall ? <Line key={glue.id} {...wallCoordinates(wall)} stroke="#4ADE80" strokeWidth={26} strokeOpacity={0.72} strokeLinecap="round" /> : null; })}
+        {room.walls.map((wall) => { const nails = room.nailStrips.filter((nail) => nail.wallSegmentId === wall.id); return nails.length > 0 ? <NailVisual key={`nails-${wall.id}`} nails={nails} wall={wall} /> : null; })}
         {room.balloons.map((balloon) => {
           const center = toPoint(balloon.x, balloon.y);
           const rx = balloon.balloonType === "speed" ? 34 : balloon.balloonType === "heavy" ? 64 : 48;
           const ry = balloon.balloonType === "speed" ? 25 : balloon.balloonType === "heavy" ? 38 : 27;
           return <G key={balloon.id}>
-            <Ellipse cx={center.x} cy={center.y} rx={rx} ry={ry} fill={`url(#${gradientIds[balloon.balloonType]})`} />
+            <Ellipse cx={center.x} cy={center.y} rx={rx} ry={ry} fill={`url(#${gradientIds[balloon.balloonType]})`} stroke={balloon.glued ? "#4ADE80" : undefined} strokeWidth={balloon.glued ? 8 : undefined} />
             <Ellipse cx={center.x - 17} cy={center.y - 10} rx={7} ry={6} fill="rgba(255,255,255,0.7)" />
             <Path d={`M ${center.x} ${center.y + ry - 3} L ${center.x - 10} ${center.y + ry + 10} L ${center.x + 10} ${center.y + ry + 10} Z`} fill={balloon.balloonType === "speed" ? "#2563EB" : balloon.balloonType === "heavy" ? "#7C2D12" : "#8B3DFF"} />
             <SvgText x={center.x} y={center.y + 10} fill="#FFFFFF" fontSize={22} fontWeight="900" textAnchor="middle">{balloon.health}</SvgText>
