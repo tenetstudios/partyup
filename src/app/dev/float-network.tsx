@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Pressable, SafeAreaView, StyleSheet, Text, View } from "react-native";
+import { AppState, Pressable, SafeAreaView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import * as Crypto from "expo-crypto";
 import {
-  applyFloatMatchAction,
   findBalloonAtPoint,
   MAX_FRAME_DELTA_SECONDS,
   SIMULATION_STEP_SECONDS,
@@ -11,31 +10,47 @@ import {
   type BalloonType,
   type FloatMatchState,
 } from "@partyup/balloon-core";
+import type { RealtimeChannel } from "@supabase/supabase-js";
+import {
+  FLOAT_REALTIME_PROTOCOL_VERSION,
+  FLOAT_MAX_ACTIONS_PER_SECOND,
+  FLOAT_MAX_RESEND_ACTIONS,
+  FloatRealtimeTimeline,
+  FloatSequenceInbox,
+  canonicalFloatJson,
+  floatActorTopic,
+  floatHashCoordinateKey,
+  simulationTimeMsToTick,
+  validateFloatRealtimeAction,
+  type FloatActionAck,
+  type FloatActionRequest,
+  type FloatHashCoordinates,
+  type FloatHashReport,
+  type FloatRealtimeAction,
+} from "@partyup/float-realtime-protocol";
 import { BalloonRoomField, type FieldPress } from "@/components/balloonRooms/BalloonRoomField";
 import { readActiveRoomContext } from "@/lib/activeRoomContext";
 import {
   FLOAT_POOL_HEARTBEAT_MS,
   FLOAT_SYNC_INTERVAL_MS,
   cancelFloatPool,
+  checkpointFloatRealtimeMatch,
   getFloatPoolStatus,
+  heartbeatFloatNetworkMatch,
   joinFloatPool,
   playerIdForUser,
+  persistFloatRealtimeActions,
   readyFloatNetworkMatch,
-  submitFloatNetworkAction,
-  syncFloatNetworkMatch,
+  recoverFloatRealtimeMatch,
   type FloatActionIntent,
   type FloatMatchRow,
   type FloatPoolMode,
 } from "@/lib/floatMultiplayer";
-import {
-  floatActionFromIntent,
-  isNewerGameplaySnapshot,
-  reconcileFloatState,
-  type PendingFloatAction,
-} from "@/lib/floatMultiplayerState";
 import { supabase } from "../../../lib/supabase";
 
-type QueuedFloatAction = PendingFloatAction & { inputAt: number; localApplyMs: number };
+function hashMobileFloatState(coordinates: FloatHashCoordinates, state: FloatMatchState) {
+  return Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, canonicalFloatJson({ coordinates, state }));
+}
 
 export default function FloatNetworkRoute() {
   const router = useRouter();
@@ -47,35 +62,28 @@ export default function FloatNetworkRoute() {
   const [busy, setBusy] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
   const matchRef = useRef<FloatMatchRow | null>(null);
-  const canonicalMatchRef = useRef<FloatMatchRow | null>(null);
   const stateRef = useRef<FloatMatchState | null>(null);
-  const pendingActionsRef = useRef<QueuedFloatAction[]>([]);
-  const actionQueueRef = useRef<QueuedFloatAction[]>([]);
-  const actionQueueRunningRef = useRef(false);
+  const timelineRef = useRef<FloatRealtimeTimeline | null>(null);
+  const realtimeChannelsRef = useRef<Partial<Record<"playerA" | "playerB", RealtimeChannel>>>({});
+  const realtimeReadyRef = useRef(false);
+  const realtimeSequenceRef = useRef(0);
+  const realtimeInboxRef = useRef<Partial<Record<"playerA" | "playerB", FloatSequenceInbox>>>({});
+  const realtimeJournalRef = useRef(new Map<number, FloatRealtimeAction>());
+  const persistenceQueueRef = useRef<FloatRealtimeAction[]>([]);
+  const persistenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const checkpointRevisionRef = useRef(0);
+  const stateHashesRef = useRef(new Map<string, string>());
+  const remoteStateHashesRef = useRef(new Map<string, string>());
+  const lastHashTickRef = useRef(-1);
+  const mismatchRecoveryTickRef = useRef(-1);
+  const recentActionTimesRef = useRef<number[]>([]);
+  const recoveredMatchIdRef = useRef<string | null>(null);
+  const [realtimeRecoveredMatchId, setRealtimeRecoveredMatchId] = useState<string | null>(null);
 
   const publishState = useCallback((state: FloatMatchState) => {
     stateRef.current = state;
     if (!matchRef.current) return;
     setMatch({ ...matchRef.current, state: structuredClone(state) });
-  }, []);
-
-  const reconcileFromCanonical = useCallback(() => {
-    const canonical = canonicalMatchRef.current;
-    if (!canonical) return;
-    const targetTime = Math.max(
-      canonical.state.simulationTimeMs,
-      stateRef.current?.simulationTimeMs ?? canonical.state.simulationTimeMs,
-    );
-    publishState(reconcileFloatState(
-      canonical.state,
-      pendingActionsRef.current,
-      targetTime,
-    ));
-  }, [publishState]);
-
-  const removePendingAction = useCallback((actionId: string) => {
-    pendingActionsRef.current = pendingActionsRef.current.filter((action) => action.actionId !== actionId);
-    setPendingCount(pendingActionsRef.current.length);
   }, []);
 
   const acceptMatch = useCallback((row: FloatMatchRow) => {
@@ -85,25 +93,27 @@ export default function FloatNetworkRoute() {
 
     const isNewMatch = current?.id !== row.id;
     if (isNewMatch) {
-      pendingActionsRef.current = [];
-      actionQueueRef.current = [];
       setPendingCount(0);
-      canonicalMatchRef.current = row;
       matchRef.current = row;
-      stateRef.current = structuredClone(row.state);
+      const state = structuredClone(row.state);
+      stateRef.current = state;
+      timelineRef.current = new FloatRealtimeTimeline(state);
+      realtimeSequenceRef.current = 0;
+      realtimeInboxRef.current = {};
+      realtimeJournalRef.current.clear();
+      checkpointRevisionRef.current = Number(row.checkpoint_revision ?? 0);
+      recoveredMatchIdRef.current = null;
+      setRealtimeRecoveredMatchId(null);
       setMatch(row);
     } else {
       matchRef.current = row;
-      if (isNewerGameplaySnapshot(current.state_revision, row.state_revision)) {
-        canonicalMatchRef.current = row;
-        reconcileFromCanonical();
-      } else if (stateRef.current) {
+      if (stateRef.current) {
         setMatch({ ...row, state: structuredClone(stateRef.current) });
       }
     }
     matchRef.current = row;
     setPoolMode(null);
-  }, [reconcileFromCanonical]);
+  }, []);
 
   useEffect(() => {
     void readActiveRoomContext().then((context) => setRoomId(context?.roomId ?? null));
@@ -143,16 +153,156 @@ export default function FloatNetworkRoute() {
     if (!match?.id || !userId) return;
     const channel = supabase.channel(`float-match:mobile:${match.id}`)
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "float_matches", filter: `id=eq.${match.id}` }, (payload) => acceptMatch(payload.new as FloatMatchRow))
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "float_match_actions", filter: `match_id=eq.${match.id}` }, (payload) => {
-        const actionId = typeof payload.new.client_action_id === "string" ? payload.new.client_action_id : null;
-        if (actionId) removePendingAction(actionId);
-      })
       .subscribe();
-    const sync = () => void syncFloatNetworkMatch(match.id).then((result) => acceptMatch(result.match)).catch((error) => setMessage(error.message));
+    const sync = () => void heartbeatFloatNetworkMatch(match.id).then((result) => acceptMatch(result.match)).catch((error) => setMessage(error.message));
     const interval = setInterval(sync, FLOAT_SYNC_INTERVAL_MS);
     sync();
     return () => { clearInterval(interval); void supabase.removeChannel(channel); };
-  }, [acceptMatch, match?.id, removePendingAction, userId]);
+  }, [acceptMatch, match?.id, userId]);
+
+  const activePlayerId = match && userId ? playerIdForUser(match, userId) : null;
+  const activeOpponentId = activePlayerId === "playerA" ? "playerB" : activePlayerId === "playerB" ? "playerA" : null;
+
+  const recoverRealtime = useCallback(async (matchId: string, localPlayerId: "playerA" | "playerB") => {
+    const previousTick = timelineRef.current?.currentTick ?? 0;
+    const recovery = await recoverFloatRealtimeMatch(matchId);
+    const baseState = recovery.match.checkpoint_state ?? recovery.match.state;
+    const baseTick = recovery.match.checkpoint_state ? Number(recovery.match.checkpoint_tick) : simulationTimeMsToTick(baseState.simulationTimeMs);
+    if (recovery.match.protocol_version !== FLOAT_REALTIME_PROTOCOL_VERSION || recovery.match.core_version !== "8.1.0") throw new Error("FLOAT UPDATE REQUIRED");
+    if (recovery.match.checkpoint_state && recovery.match.checkpoint_hash) {
+      const checkpointCoordinates: FloatHashCoordinates = {
+        protocolVersion: FLOAT_REALTIME_PROTOCOL_VERSION,
+        coreVersion: "8.1.0",
+        simulationTick: baseTick,
+        playerASequence: Number(recovery.match.player_a_checkpoint_sequence),
+        playerBSequence: Number(recovery.match.player_b_checkpoint_sequence),
+      };
+      if (await hashMobileFloatState(checkpointCoordinates, baseState) !== recovery.match.checkpoint_hash) throw new Error("Float checkpoint hash validation failed");
+    }
+    const timeline = new FloatRealtimeTimeline(baseState, baseTick);
+    const cursors = {
+      playerA: Number(recovery.match.player_a_checkpoint_sequence ?? 0),
+      playerB: Number(recovery.match.player_b_checkpoint_sequence ?? 0),
+    };
+    const inboxes = {
+      playerA: new FloatSequenceInbox(cursors.playerA),
+      playerB: new FloatSequenceInbox(cursors.playerB),
+    };
+    const ownJournal = new Map<number, FloatRealtimeAction>();
+    let ownSequence = cursors[localPlayerId];
+    for (const raw of recovery.actions) {
+      const actor = raw.actorPlayerId;
+      if (actor !== "playerA" && actor !== "playerB") continue;
+      const action = validateFloatRealtimeAction(raw, { matchId, actorPlayerId: actor });
+      const received = inboxes[actor].receive(action);
+      for (const ready of received.ready) {
+        if (ready.simulationTick > timeline.currentTick) timeline.advanceTo(ready.simulationTick);
+        timeline.insert(ready);
+      }
+      if (actor === localPlayerId) {
+        ownSequence = Math.max(ownSequence, action.clientSequence);
+        ownJournal.set(action.clientSequence, action);
+      }
+    }
+    timeline.advanceTo(Math.max(previousTick, timeline.currentTick));
+    timelineRef.current = timeline;
+    stateRef.current = timeline.state;
+    realtimeInboxRef.current = inboxes;
+    realtimeSequenceRef.current = ownSequence;
+    realtimeJournalRef.current = ownJournal;
+    checkpointRevisionRef.current = Number(recovery.match.checkpoint_revision ?? 0);
+    matchRef.current = recovery.match;
+    setMatch({ ...recovery.match, state: structuredClone(timeline.state) });
+    setPendingCount(ownJournal.size);
+    setRealtimeRecoveredMatchId(matchId);
+    setMessage("Realtime state recovered.");
+  }, []);
+
+  useEffect(() => {
+    if (!match?.id || !activePlayerId || match.status !== "active" || recoveredMatchIdRef.current === match.id) return;
+    recoveredMatchIdRef.current = match.id;
+    void recoverRealtime(match.id, activePlayerId).catch((error) => {
+      recoveredMatchIdRef.current = null;
+      setMessage(error instanceof Error ? error.message : "Realtime recovery failed.");
+    });
+  }, [activePlayerId, match?.id, match?.status, recoverRealtime]);
+
+  useEffect(() => {
+    if (!match?.id || realtimeRecoveredMatchId !== match.id || !activePlayerId || !activeOpponentId || match.status !== "active") return;
+    let joined = 0;
+    realtimeReadyRef.current = false;
+    if (!realtimeInboxRef.current.playerA) realtimeInboxRef.current.playerA = new FloatSequenceInbox();
+    if (!realtimeInboxRef.current.playerB) realtimeInboxRef.current.playerB = new FloatSequenceInbox();
+    const send = (actor: "playerA" | "playerB", event: string, payload: object) => {
+      const channel = realtimeChannelsRef.current[actor];
+      if (channel) void channel.send({ type: "broadcast", event, payload });
+    };
+    const receiveAction = (topicActor: "playerA" | "playerB", raw: unknown) => {
+      try {
+        const action = validateFloatRealtimeAction(raw, { matchId: match.id, actorPlayerId: topicActor });
+        const inbox = realtimeInboxRef.current[topicActor];
+        if (!inbox) return;
+        const received = inbox.receive(action);
+        for (const ready of received.ready) {
+          const result = timelineRef.current?.insert(ready);
+          if (result?.status === "too_old") void recoverRealtime(match.id, activePlayerId);
+          else if (result?.status === "rejected") setMessage(result.result.message);
+        }
+        if (received.missing) {
+          const request: FloatActionRequest = { protocolVersion: FLOAT_REALTIME_PROTOCOL_VERSION, type: "REQUEST_ACTIONS", actorPlayerId: topicActor, ...received.missing };
+          send(activePlayerId, "protocol_control", request);
+        }
+        const ack: FloatActionAck = { protocolVersion: FLOAT_REALTIME_PROTOCOL_VERSION, type: "ACTION_ACK", actorPlayerId: topicActor, throughSequence: inbox.getThroughSequence() };
+        send(activePlayerId, "protocol_control", ack);
+      } catch (error) { setMessage(error instanceof Error ? error.message : "Invalid realtime action."); }
+    };
+    for (const topicActor of ["playerA", "playerB"] as const) {
+      const channel = supabase.channel(floatActorTopic(match.id, topicActor), { config: { private: true, broadcast: { ack: true, self: false } } })
+        .on("broadcast", { event: "gameplay_action" }, ({ payload }) => receiveAction(topicActor, payload))
+        .on("broadcast", { event: "action_replay" }, ({ payload }) => receiveAction(topicActor, payload))
+        .on("broadcast", { event: "protocol_control" }, ({ payload }) => {
+          if (!payload || typeof payload !== "object" || topicActor === activePlayerId) return;
+          const control = payload as Record<string, unknown>;
+          if (control.type === "HASH_REPORT" && control.protocolVersion === FLOAT_REALTIME_PROTOCOL_VERSION && control.coreVersion === "8.1.0" && control.actorPlayerId === topicActor && Number.isSafeInteger(control.simulationTick) && Number.isSafeInteger(control.playerASequence) && Number.isSafeInteger(control.playerBSequence) && typeof control.stateHash === "string") {
+            const coordinates = control as FloatHashReport;
+            const key = floatHashCoordinateKey(coordinates);
+            const tick = coordinates.simulationTick;
+            remoteStateHashesRef.current.set(key, coordinates.stateHash);
+            const localHash = stateHashesRef.current.get(key);
+            if (localHash && localHash !== coordinates.stateHash && mismatchRecoveryTickRef.current !== tick) {
+              mismatchRecoveryTickRef.current = tick;
+              void recoverRealtime(match.id, activePlayerId);
+            }
+            return;
+          }
+          if (control.protocolVersion !== FLOAT_REALTIME_PROTOCOL_VERSION || control.actorPlayerId !== activePlayerId) return;
+          if (control.type === "ACTION_ACK" && Number.isSafeInteger(control.throughSequence)) {
+            for (const sequence of realtimeJournalRef.current.keys()) if (sequence <= Number(control.throughSequence)) realtimeJournalRef.current.delete(sequence);
+            setPendingCount(realtimeJournalRef.current.size);
+          } else if (control.type === "REQUEST_ACTIONS" && Number.isSafeInteger(control.fromSequence) && Number.isSafeInteger(control.toSequence)) {
+            for (let sequence = Number(control.fromSequence); sequence <= Number(control.toSequence); sequence += 1) {
+              const action = realtimeJournalRef.current.get(sequence);
+              if (action) send(activePlayerId, "action_replay", action);
+            }
+          }
+        }).subscribe((status) => {
+          if (status === "SUBSCRIBED" && ++joined === 2) realtimeReadyRef.current = true;
+          else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") realtimeReadyRef.current = false;
+        });
+      realtimeChannelsRef.current[topicActor] = channel;
+    }
+    const replayInterval = setInterval(() => {
+      if (!realtimeReadyRef.current) return;
+      for (const action of realtimeJournalRef.current.values()) send(activePlayerId, "action_replay", action);
+    }, 500);
+    return () => {
+      clearInterval(replayInterval);
+      realtimeReadyRef.current = false;
+      const channels = Object.values(realtimeChannelsRef.current);
+      realtimeChannelsRef.current = {};
+      for (const channel of channels) if (channel) void supabase.removeChannel(channel);
+    };
+  }, [activeOpponentId, activePlayerId, match?.id, match?.status, realtimeRecoveredMatchId, recoverRealtime]);
 
   useEffect(() => {
     if (!match?.id || match.status !== "active") return;
@@ -165,7 +315,33 @@ export default function FloatNetworkRoute() {
       if (state && matchRef.current?.id === match.id) {
         accumulator += Math.min((now - previous) / 1000, MAX_FRAME_DELTA_SECONDS);
         while (accumulator >= SIMULATION_STEP_SECONDS) {
-          updateFloatMatch(state, SIMULATION_STEP_SECONDS);
+          const timeline = timelineRef.current;
+          if (timeline && timeline.state === state) {
+            timeline.advanceTo(timeline.currentTick + 1);
+            if (activePlayerId && timeline.currentTick > 0 && timeline.currentTick % 60 === 0 && lastHashTickRef.current !== timeline.currentTick) {
+              const hashTick = timeline.currentTick;
+              const hashState = structuredClone(timeline.state);
+              lastHashTickRef.current = hashTick;
+              const coordinates: FloatHashCoordinates = {
+                protocolVersion: FLOAT_REALTIME_PROTOCOL_VERSION,
+                coreVersion: "8.1.0",
+                simulationTick: hashTick,
+                playerASequence: activePlayerId === "playerA" ? realtimeSequenceRef.current : realtimeInboxRef.current.playerA?.getThroughSequence() ?? 0,
+                playerBSequence: activePlayerId === "playerB" ? realtimeSequenceRef.current : realtimeInboxRef.current.playerB?.getThroughSequence() ?? 0,
+              };
+              void hashMobileFloatState(coordinates, hashState).then((stateHash) => {
+                const key = floatHashCoordinateKey(coordinates);
+                stateHashesRef.current.set(key, stateHash);
+                const remoteHash = remoteStateHashesRef.current.get(key);
+                if (remoteHash && remoteHash !== stateHash && mismatchRecoveryTickRef.current !== hashTick) {
+                  mismatchRecoveryTickRef.current = hashTick;
+                  void recoverRealtime(match.id, activePlayerId);
+                }
+                const channel = realtimeChannelsRef.current[activePlayerId];
+                if (channel) void channel.send({ type: "broadcast", event: "protocol_control", payload: { ...coordinates, type: "HASH_REPORT", actorPlayerId: activePlayerId, stateHash } satisfies FloatHashReport });
+              });
+            }
+          } else updateFloatMatch(state, SIMULATION_STEP_SECONDS);
           accumulator -= SIMULATION_STEP_SECONDS;
         }
         if (now - lastPublish >= 100) {
@@ -178,93 +354,108 @@ export default function FloatNetworkRoute() {
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [match?.id, match?.status, publishState]);
+  }, [activePlayerId, match?.id, match?.status, publishState, recoverRealtime]);
+
+  useEffect(() => {
+    if (!match?.id || activePlayerId !== "playerA" || match.status !== "active") return;
+    let running = false;
+    const write = async () => {
+      if (running || !timelineRef.current) return;
+      running = true;
+      const checkpoint = timelineRef.current.exportCheckpoint();
+      try {
+        const playerASequence = realtimeSequenceRef.current;
+        const playerBSequence = realtimeInboxRef.current.playerB?.getThroughSequence() ?? 0;
+        const coordinates: FloatHashCoordinates = { protocolVersion: FLOAT_REALTIME_PROTOCOL_VERSION, coreVersion: "8.1.0", simulationTick: checkpoint.simulationTick, playerASequence, playerBSequence };
+        const stateHash = await hashMobileFloatState(coordinates, checkpoint.state);
+        const result = await checkpointFloatRealtimeMatch(match.id, {
+          expectedRevision: checkpointRevisionRef.current,
+          simulationTick: checkpoint.simulationTick,
+          state: checkpoint.state,
+          stateHash,
+          playerASequence,
+          playerBSequence,
+        });
+        checkpointRevisionRef.current = Number(result.match.checkpoint_revision ?? checkpointRevisionRef.current);
+      } catch (error) { if (__DEV__) console.error("[FLOAT CHECKPOINT DELAYED]", error); }
+      finally { running = false; }
+    };
+    const interval = setInterval(() => void write(), 2_000);
+    return () => clearInterval(interval);
+  }, [activePlayerId, match?.id, match?.status]);
+
+  const schedulePersistence = (delayMs = 250) => {
+    if (persistenceTimerRef.current) return;
+    persistenceTimerRef.current = setTimeout(() => {
+      persistenceTimerRef.current = null;
+      const activeMatchId = matchRef.current?.id;
+      const batch = persistenceQueueRef.current.splice(0, 100);
+      if (!activeMatchId || batch.length === 0) return;
+      void persistFloatRealtimeActions(activeMatchId, batch).then(() => {
+        if (persistenceQueueRef.current.length > 0) schedulePersistence();
+      }).catch((error) => {
+        persistenceQueueRef.current.unshift(...batch);
+        setMessage(error instanceof Error ? `Gameplay live; persistence delayed: ${error.message}` : "Gameplay live; persistence delayed.");
+        schedulePersistence(1_000);
+      });
+    }, delayMs);
+  };
 
   useEffect(() => () => {
-    pendingActionsRef.current = [];
-    actionQueueRef.current = [];
+    if (persistenceTimerRef.current) clearTimeout(persistenceTimerRef.current);
   }, []);
 
-  const drainActionQueue = useCallback(async () => {
-    if (actionQueueRunningRef.current) return;
-    actionQueueRunningRef.current = true;
-    try {
-      while (actionQueueRef.current.length > 0) {
-        const queued = actionQueueRef.current[0];
-        const activeMatchId = matchRef.current?.id;
-        if (!activeMatchId) break;
-        const requestStartedAt = performance.now();
-        try {
-          const result = await submitFloatNetworkAction(activeMatchId, queued.intent, queued.actionId);
-          removePendingAction(queued.actionId);
-          if (matchRef.current?.id !== activeMatchId) break;
-          acceptMatch(result.match);
-          reconcileFromCanonical();
-          if (!result.accepted) {
-            setMessage(result.error ?? "Float action was rejected.");
-          }
-          if (__DEV__) console.info("[FLOAT ACTION TIMING]", {
-            actionType: queued.intent.actionType,
-            localApplyMs: queued.localApplyMs,
-            requestMs: performance.now() - requestStartedAt,
-            totalMs: performance.now() - queued.inputAt,
-            accepted: result.accepted,
-          });
-        } catch (error) {
-          removePendingAction(queued.actionId);
-          if (matchRef.current?.id === activeMatchId) {
-            try {
-              const result = await syncFloatNetworkMatch(activeMatchId);
-              acceptMatch(result.match);
-              reconcileFromCanonical();
-            } catch {
-              reconcileFromCanonical();
-            }
-          }
-          setMessage(error instanceof Error ? error.message : "Float action failed.");
-        } finally {
-          if (actionQueueRef.current[0]?.actionId === queued.actionId) actionQueueRef.current.shift();
-        }
-      }
-    } finally {
-      actionQueueRunningRef.current = false;
-    }
-  }, [acceptMatch, reconcileFromCanonical, removePendingAction]);
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") return;
+      const activeMatchId = matchRef.current?.id;
+      const batch = persistenceQueueRef.current.splice(0, 100);
+      if (activeMatchId && batch.length > 0) void persistFloatRealtimeActions(activeMatchId, batch).catch(() => persistenceQueueRef.current.unshift(...batch));
+    });
+    return () => subscription.remove();
+  }, []);
 
-  const handleIntent = useCallback((intent: FloatActionIntent) => {
+  const handleIntent = (intent: FloatActionIntent) => {
     const activeMatch = matchRef.current;
-    const localState = stateRef.current;
-    if (!activeMatch || !localState || !userId || activeMatch.status !== "active") return;
+    const timeline = timelineRef.current;
+    if (!activeMatch || !timeline || !userId || activeMatch.status !== "active") return;
     const actorPlayerId = playerIdForUser(activeMatch, userId);
     if (!actorPlayerId) return;
-    const inputAt = performance.now();
-    const queued: QueuedFloatAction = {
+    const actionNow = performance.now();
+    recentActionTimesRef.current = recentActionTimesRef.current.filter((time) => actionNow - time < 1_000);
+    if (recentActionTimesRef.current.length >= FLOAT_MAX_ACTIONS_PER_SECOND || realtimeJournalRef.current.size >= FLOAT_MAX_RESEND_ACTIONS) {
+      setMessage("Realtime action rate exceeded; wait for peer acknowledgement.");
+      return;
+    }
+    const channel = realtimeChannelsRef.current[actorPlayerId];
+    if (!realtimeReadyRef.current || !channel) { setMessage("Realtime is reconnecting; action was not applied."); return; }
+    const sequence = realtimeSequenceRef.current + 1;
+    const action: FloatRealtimeAction = {
+      protocolVersion: FLOAT_REALTIME_PROTOCOL_VERSION,
+      matchId: activeMatch.id,
       actionId: Crypto.randomUUID(),
       actorPlayerId,
-      intent,
-      simulationTimeMs: localState.simulationTimeMs,
-      inputAt,
-      localApplyMs: 0,
+      clientSequence: sequence,
+      simulationTick: timeline.currentTick,
+      actionType: intent.actionType,
+      payload: intent.payload,
     };
     try {
-      const action = floatActionFromIntent(localState, actorPlayerId, intent, queued.simulationTimeMs);
-      const result = applyFloatMatchAction(localState, action);
-      if (!result.applied) {
-        setMessage(result.message);
-        return;
-      }
-      queued.localApplyMs = performance.now() - inputAt;
-      pendingActionsRef.current.push(queued);
-      actionQueueRef.current.push(queued);
-      setPendingCount(pendingActionsRef.current.length);
-      publishState(localState);
+      const result = timeline.insert(action);
+      if (result.status !== "applied") { setMessage(result.status === "rejected" ? result.result.message : `Action rejected (${result.status}).`); return; }
+      realtimeSequenceRef.current = sequence;
+      recentActionTimesRef.current.push(actionNow);
+      realtimeJournalRef.current.set(sequence, action);
+      persistenceQueueRef.current.push(action);
+      schedulePersistence();
+      setPendingCount(realtimeJournalRef.current.size);
+      publishState(timeline.state);
       setMessage("Applied locally.");
-      if (__DEV__) console.info("[FLOAT LOCAL ACTION]", { actionType: intent.actionType, localApplyMs: queued.localApplyMs });
-      void drainActionQueue();
+      void channel.send({ type: "broadcast", event: "gameplay_action", payload: action });
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Float action is unavailable.");
     }
-  }, [drainActionQueue, publishState, userId]);
+  };
 
   const start = async (mode: FloatPoolMode) => {
     if (busy) return;
