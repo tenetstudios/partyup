@@ -92,10 +92,10 @@ function BalloonRoomFieldComponent({ room, height, debugPaths, damageFlash, stru
         if (!onLongPressPosition || width <= 0 || height <= 0) return;
         onLongPressPosition({ x: event.nativeEvent.locationX / width, y: event.nativeEvent.locationY / height, width, height });
       }}
-      delayLongPress={1000}
+      delayLongPress={500}
       accessible
       accessibilityRole={onPressPosition || onLongPressPosition ? "button" : undefined}
-      accessibilityLabel={`${room.id} playfield. Tap balloons to pop. Tap your walls to select repair options. Hold one second on a grid edge to build.`}
+      accessibilityLabel={`${room.id} playfield. Tap balloons to pop. Tap your walls to select repair options. Hold half a second on a grid edge to build.`}
     >
       <Svg width="100%" height="100%" viewBox={`0 0 ${viewBoxSize} ${viewBoxSize}`} preserveAspectRatio="none" pointerEvents="none">
         <Defs>

@@ -114,7 +114,7 @@ function BalloonRoomsDevScreen() {
         <View style={styles.header}>
           <View style={styles.waveHeader}>
             <Text style={styles.waveTitle}>{snapshot.wave.status === "complete" ? "ALL WAVES COMPLETE" : snapshot.wave.status === "transition" ? `ROUND ${snapshot.wave.nextRoundId} STARTS IN ${snapshot.wave.nextRoundInSeconds}s` : `ROUND ${snapshot.wave.roundId}`}</Text>
-            <Text numberOfLines={1} style={styles.waveMeta}>{snapshot.wave.status === "transition" ? "BUILD WINDOW · HOLD 1s ON A GRID EDGE" : currentRound ? `${currentRound.composition.map((entry) => `${entry.count} ${entry.balloonType[0].toUpperCase()}`).join(" · ")} · ${snapshot.wave.spawnedCount}/${snapshot.wave.totalCount}` : "PvP ACTIVE"}</Text>
+            <Text numberOfLines={1} style={styles.waveMeta}>{snapshot.wave.status === "transition" ? "BUILD WINDOW · HOLD 0.5s ON A GRID EDGE" : currentRound ? `${currentRound.composition.map((entry) => `${entry.count} ${entry.balloonType[0].toUpperCase()}`).join(" · ")} · ${snapshot.wave.spawnedCount}/${snapshot.wave.totalCount}` : "PvP ACTIVE"}</Text>
             {snapshot.wave.notice ? <Text numberOfLines={1} style={styles.waveNotice}>{snapshot.wave.notice}</Text> : null}
           </View>
           <View style={styles.headerButtons}>
@@ -142,7 +142,7 @@ function BalloonRoomsDevScreen() {
               <View style={styles.repairInfo}><Text numberOfLines={1} style={styles.repairTitle}>WALL {selectedWall.integrity}/{selectedWall.maxIntegrity}</Text><Text numberOfLines={1} style={styles.repairMeta}>{selectedWallRepairable ? `Restore +${WALL_REPAIR_AMOUNT}` : `Repair at ${WALL_REPAIR_THRESHOLD} or less`}</Text></View>
               <Pressable onPress={repairSelectedWall} disabled={!selectedWallRepairable || snapshot.rooms.yours.economy.coins < WALL_REPAIR_COST} hitSlop={4} style={[styles.repairButton, (!selectedWallRepairable || snapshot.rooms.yours.economy.coins < WALL_REPAIR_COST) && styles.actionDisabled]} accessibilityRole="button" accessibilityLabel={`Repair selected wall for ${WALL_REPAIR_COST} coins`} accessibilityState={{ disabled: !selectedWallRepairable || snapshot.rooms.yours.economy.coins < WALL_REPAIR_COST }}><Text style={styles.repairButtonText}>{selectedWallRepairable && snapshot.rooms.yours.economy.coins < WALL_REPAIR_COST ? `NEED ${WALL_REPAIR_COST}` : `REPAIR +${WALL_REPAIR_AMOUNT} · ${WALL_REPAIR_COST}`}</Text></Pressable>
             </View> : null}
-            <Text numberOfLines={1} ellipsizeMode="tail" style={[styles.feedback, feedback ? (feedback.valid ? styles.feedbackValid : styles.feedbackInvalid) : null]}>{feedback?.message ?? `Hold 1s to ${buildMode} · W ${MAX_WALL_SEGMENTS - snapshot.rooms.yours.walls.length} · N ${MAX_NAIL_STRIPS - snapshot.rooms.yours.nailStrips.length} · G ${snapshot.rooms.yours.glueTraps.length}`}</Text>
+            <Text numberOfLines={1} ellipsizeMode="tail" style={[styles.feedback, feedback ? (feedback.valid ? styles.feedbackValid : styles.feedbackInvalid) : null]}>{feedback?.message ?? `Hold 0.5s to ${buildMode} · W ${MAX_WALL_SEGMENTS - snapshot.rooms.yours.walls.length} · N ${MAX_NAIL_STRIPS - snapshot.rooms.yours.nailStrips.length} · G ${snapshot.rooms.yours.glueTraps.length}`}</Text>
           </View>
           <View style={styles.controlPanel}>
             <Text numberOfLines={1} style={styles.attackPrompt}>TAP TO SEND · LANE {selectedAttackLane}</Text>
