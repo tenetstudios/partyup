@@ -1279,7 +1279,7 @@ async function syncRoomCounts(roomId: string) {
             </View>
             <TouchableOpacity
               style={styles.matchTestButton}
-              onPress={() => router.push("/dev/balloon-rooms" as never)}
+              onPress={() => router.push("/dev/float-network" as never)}
             >
               <Text style={styles.surpriseText}>Test</Text>
               <Icon name="chevronRight" size={15} color="#A7F3D0" />
