@@ -204,7 +204,10 @@ export default function FloatNetworkRoute() {
         ownJournal.set(action.clientSequence, action);
       }
     }
-    timeline.advanceTo(Math.max(previousTick, timeline.currentTick));
+    const serverTick = recovery.match.started_at
+      ? simulationTimeMsToTick(Math.max(0, Date.now() - Date.parse(recovery.match.started_at)))
+      : timeline.currentTick;
+    timeline.advanceTo(Math.max(previousTick, serverTick, timeline.currentTick));
     timelineRef.current = timeline;
     stateRef.current = timeline.state;
     realtimeInboxRef.current = inboxes;
@@ -229,7 +232,9 @@ export default function FloatNetworkRoute() {
 
   useEffect(() => {
     if (!match?.id || realtimeRecoveredMatchId !== match.id || !activePlayerId || !activeOpponentId || match.status !== "active") return;
-    let joined = 0;
+    let closed = false;
+    const joinedActors = new Set<"playerA" | "playerB">();
+    let replayInterval: ReturnType<typeof setInterval> | null = null;
     realtimeReadyRef.current = false;
     if (!realtimeInboxRef.current.playerA) realtimeInboxRef.current.playerA = new FloatSequenceInbox();
     if (!realtimeInboxRef.current.playerB) realtimeInboxRef.current.playerB = new FloatSequenceInbox();
@@ -245,7 +250,10 @@ export default function FloatNetworkRoute() {
         const received = inbox.receive(action);
         for (const ready of received.ready) {
           const result = timelineRef.current?.insert(ready);
-          if (result?.status === "too_old") void recoverRealtime(match.id, activePlayerId);
+          if (result?.status === "too_old" || result?.status === "too_far_ahead") {
+            void recoverRealtime(match.id, activePlayerId);
+            return;
+          }
           else if (result?.status === "rejected") setMessage(result.result.message);
         }
         if (received.missing) {
@@ -254,9 +262,17 @@ export default function FloatNetworkRoute() {
         }
         const ack: FloatActionAck = { protocolVersion: FLOAT_REALTIME_PROTOCOL_VERSION, type: "ACTION_ACK", actorPlayerId: topicActor, throughSequence: inbox.getThroughSequence() };
         send(activePlayerId, "protocol_control", ack);
-      } catch (error) { setMessage(error instanceof Error ? error.message : "Invalid realtime action."); }
+      } catch (error) {
+        if (error instanceof Error && /sequence gap/i.test(error.message)) void recoverRealtime(match.id, activePlayerId);
+        setMessage(error instanceof Error ? error.message : "Invalid realtime action.");
+      }
     };
-    for (const topicActor of ["playerA", "playerB"] as const) {
+    const connect = async () => {
+      const { data, error } = await supabase.auth.getSession();
+      if (error || !data.session?.access_token) throw error ?? new Error("Float Realtime authentication is unavailable.");
+      await supabase.realtime.setAuth(data.session.access_token);
+      if (closed) return;
+      for (const topicActor of ["playerA", "playerB"] as const) {
       const channel = supabase.channel(floatActorTopic(match.id, topicActor), { config: { private: true, broadcast: { ack: true, self: false } } })
         .on("broadcast", { event: "gameplay_action" }, ({ payload }) => receiveAction(topicActor, payload))
         .on("broadcast", { event: "action_replay" }, ({ payload }) => receiveAction(topicActor, payload))
@@ -285,18 +301,28 @@ export default function FloatNetworkRoute() {
               if (action) send(activePlayerId, "action_replay", action);
             }
           }
-        }).subscribe((status) => {
-          if (status === "SUBSCRIBED" && ++joined === 2) realtimeReadyRef.current = true;
-          else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") realtimeReadyRef.current = false;
+        }).subscribe((status, error) => {
+          if (status === "SUBSCRIBED") {
+            joinedActors.add(topicActor);
+            if (joinedActors.size === 2) { realtimeReadyRef.current = true; setMessage("Realtime connected."); }
+          } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+            joinedActors.delete(topicActor);
+            realtimeReadyRef.current = false;
+            if (__DEV__) console.error("[FLOAT REALTIME SUBSCRIBE FAILED]", { topicActor, status, error });
+            setMessage(`Private Float realtime failed on ${topicActor}${error?.message ? `: ${error.message}` : "."}`);
+          }
         });
       realtimeChannelsRef.current[topicActor] = channel;
-    }
-    const replayInterval = setInterval(() => {
-      if (!realtimeReadyRef.current) return;
-      for (const action of realtimeJournalRef.current.values()) send(activePlayerId, "action_replay", action);
-    }, 500);
+      }
+      replayInterval = setInterval(() => {
+        if (!realtimeReadyRef.current) return;
+        for (const action of realtimeJournalRef.current.values()) send(activePlayerId, "action_replay", action);
+      }, 500);
+    };
+    void connect().catch((error) => setMessage(error instanceof Error ? error.message : "Float Realtime authentication failed."));
     return () => {
-      clearInterval(replayInterval);
+      closed = true;
+      if (replayInterval) clearInterval(replayInterval);
       realtimeReadyRef.current = false;
       const channels = Object.values(realtimeChannelsRef.current);
       realtimeChannelsRef.current = {};
