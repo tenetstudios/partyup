@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 import { supabase } from "../../../lib/supabase";
+import { ensurePartyUpIdentity } from "../../lib/matchmaking";
 import { completeOAuthSession, hasOAuthResponse } from "../../lib/oauthSession";
 
 export default function AuthCallback() {
@@ -27,6 +28,8 @@ export default function AuthCallback() {
           router.replace("/home");
           return;
         }
+
+        await ensurePartyUpIdentity();
 
         const { data: profile, error: profileError } = await supabase
           .from("profiles")
