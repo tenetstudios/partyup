@@ -26,6 +26,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import { resolveMyEventRecaps } from "../../lib/recaps";
 import { EventSeriesSummary, getMyEventSeries } from "../../lib/eventSeries";
+import { ensurePartyUpIdentity } from "../lib/matchmaking";
 
 type RoomType = "party" | "concert" | "dj_set" | "popup" | "sports" | "watch_party";
 type RoomMode = "irl" | "livestream" | "hybrid";
@@ -851,6 +852,8 @@ async function syncRoomCounts(roomId: string) {
         showAlert("You need to sign in first.");
         return;
       }
+
+      await ensurePartyUpIdentity();
 
       let coverImage: string | null = null;
 

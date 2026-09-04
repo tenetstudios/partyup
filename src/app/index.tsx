@@ -19,6 +19,7 @@ import {
 import { supabase } from "../../lib/supabase";
 import * as WebBrowser from "expo-web-browser";
 import { signInWithApple } from "../lib/appleSignIn";
+import { ensurePartyUpIdentity } from "../lib/matchmaking";
 import { completeOAuthSession } from "../lib/oauthSession";
 
 WebBrowser.maybeCompleteAuthSession();
@@ -39,6 +40,8 @@ async function routeSignedInUser(user: RoutableUser) {
     router.replace("/home");
     return;
   }
+
+  await ensurePartyUpIdentity();
 
   const { data: profile } = await supabase
     .from("profiles")
