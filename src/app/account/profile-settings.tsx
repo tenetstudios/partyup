@@ -8,6 +8,13 @@ import { requestAccountDeletion } from "../../lib/accountDeletion";
 
 type AccountDetails = { id: string; email: string; provider: string; verified: boolean };
 
+function providerLabel(provider: string) {
+  if (provider === "google") return "Google";
+  if (provider === "apple") return "Apple";
+  if (provider === "email") return "Email";
+  return provider;
+}
+
 export default function ProfileSettings() {
   const [account, setAccount] = useState<AccountDetails | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -85,7 +92,7 @@ export default function ProfileSettings() {
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>Sign-in details</Text>
         <Detail label="Email" value={account?.email ?? "Loading..."} />
-        <Detail label="Sign-in provider" value={account?.provider === "google" ? "Google" : account?.provider ?? "Loading..."} />
+        <Detail label="Sign-in provider" value={account ? providerLabel(account.provider) : "Loading..."} />
         <Detail label="Email status" value={account ? (account.verified ? "Verified" : "Not verified") : "Loading..."} />
         <Detail label="Account ID" value={account?.id ?? "Loading..."} />
       </View>
