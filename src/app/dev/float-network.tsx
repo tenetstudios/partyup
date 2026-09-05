@@ -1,14 +1,27 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { AppState, Pressable, SafeAreaView, StyleSheet, Text, View } from "react-native";
+import { AppState, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useRouter } from "expo-router";
 import * as Crypto from "expo-crypto";
 import {
+  BALLOON_TYPES,
+  GLUE_COST,
+  MAX_LAUNCH_QUEUE_SIZE,
+  NAIL_STRIP_COST,
+  ROOM_MAX_HEALTH,
+  VERTICAL_WALL_COST,
+  WALL_REPAIR_AMOUNT,
+  WALL_REPAIR_COST,
+  WALL_REPAIR_THRESHOLD,
+  createWallSegment,
   findBalloonAtPoint,
+  findClosestGridEdge,
+  getCurrentWaveRound,
   MAX_FRAME_DELTA_SECONDS,
   SIMULATION_STEP_SECONDS,
   updateFloatMatch,
   type BalloonType,
   type FloatMatchState,
+  type SpawnLane,
 } from "@partyup/balloon-core";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import {
@@ -29,6 +42,10 @@ import {
   type FloatRealtimeAction,
 } from "@partyup/float-realtime-protocol";
 import { BalloonRoomField, type FieldPress } from "@/components/balloonRooms/BalloonRoomField";
+import {
+  FloatArenaHeader, FloatArenaTransition, FloatBackdrop, FloatHud, FloatLaneOverlay,
+  FloatModeSwitch, FloatResultOverlay, FloatToolbar, type FloatMode, type FloatTool,
+} from "@/components/balloonRooms/FloatMobileUi";
 import { readActiveRoomContext } from "@/lib/activeRoomContext";
 import {
   FLOAT_POOL_HEARTBEAT_MS,
@@ -48,12 +65,15 @@ import {
 } from "@/lib/floatMultiplayer";
 import { supabase } from "../../../lib/supabase";
 
+type BuildMode = "wall" | "nails" | "glue" | "remove";
+
 function hashMobileFloatState(coordinates: FloatHashCoordinates, state: FloatMatchState) {
   return Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, canonicalFloatJson({ coordinates, state }));
 }
 
 export default function FloatNetworkRoute() {
   const router = useRouter();
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const [userId, setUserId] = useState<string | null>(null);
   const [roomId, setRoomId] = useState<string | null>(null);
   const [poolMode, setPoolMode] = useState<FloatPoolMode | null>(null);
@@ -61,6 +81,10 @@ export default function FloatNetworkRoute() {
   const [message, setMessage] = useState("Choose how you want to play Float.");
   const [busy, setBusy] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
+  const [mode, setMode] = useState<FloatMode>("defend");
+  const [buildMode, setBuildMode] = useState<BuildMode>("wall");
+  const [selectedAttackLane, setSelectedAttackLane] = useState<SpawnLane>(1);
+  const [selectedWallId, setSelectedWallId] = useState<string | null>(null);
   const matchRef = useRef<FloatMatchRow | null>(null);
   const stateRef = useRef<FloatMatchState | null>(null);
   const timelineRef = useRef<FloatRealtimeTimeline | null>(null);
@@ -532,18 +556,89 @@ export default function FloatNetworkRoute() {
 
   const pop = (press: FieldPress) => {
     const balloon = findBalloonAtPoint(ownRoom, press.x, press.y, 24 / Math.min(press.width, press.height));
-    if (balloon) handleIntent({ actionType: "POP_BALLOON", payload: { balloonId: balloon.id } });
+    if (balloon) { handleIntent({ actionType: "POP_BALLOON", payload: { balloonId: balloon.id } }); return; }
+    const edge = findClosestGridEdge(press.x, press.y, press.width, press.height, 42);
+    if (!edge) { setSelectedWallId(null); return; }
+    const candidate = createWallSegment(ownRoom.id, edge.orientation, edge.gridX, edge.gridY);
+    setSelectedWallId(ownRoom.walls.some(wall => wall.id === candidate.id) ? candidate.id : null);
   };
-  const send = (balloonType: BalloonType) => handleIntent({ actionType: "SEND_BALLOON", payload: { balloonType, lane: 1 } });
+  const build = (press: FieldPress) => {
+    const edge = findClosestGridEdge(press.x, press.y, press.width, press.height, 30);
+    if (!edge) { setMessage("Hold directly on a grid edge."); return; }
+    const wall = createWallSegment(ownRoom.id, edge.orientation, edge.gridX, edge.gridY);
+    const intent: FloatActionIntent = buildMode === "wall"
+      ? { actionType: "PLACE_WALL", payload: { orientation: edge.orientation, gridX: edge.gridX, gridY: edge.gridY } }
+      : buildMode === "nails"
+        ? { actionType: "PLACE_NAILS", payload: { wallSegmentId: wall.id } }
+        : buildMode === "glue"
+          ? { actionType: "PLACE_GLUE", payload: { wallSegmentId: wall.id } }
+          : { actionType: "REMOVE_WALL", payload: { wallSegmentId: wall.id } };
+    handleIntent(intent);
+  };
+  const send = (balloonType: BalloonType) => handleIntent({ actionType: "SEND_BALLOON", payload: { balloonType, lane: selectedAttackLane } });
+  const selectedWall = ownRoom.walls.find(wall => wall.id === selectedWallId) ?? null;
+  const selectedWallRepairable = selectedWall !== null && selectedWall.integrity > 0 && selectedWall.integrity <= WALL_REPAIR_THRESHOLD;
+  const viewedRoom = mode === "defend" ? ownRoom : opponentRoom;
+  const fieldHeight = Math.max(windowWidth > windowHeight ? 80 : 240, Math.min(610, windowHeight - (windowWidth > windowHeight ? 285 : 345)));
+  const waveRound = getCurrentWaveRound(state.waveState);
+  const roundStatus = state.waveState.status === "transition"
+    ? `Build your defense · ${Math.max(0, Math.ceil(((state.waveState.transitionEndsAt ?? state.simulationTimeMs) - state.simulationTimeMs) / 1000))}s`
+    : `Keep them from reaching the top · ${state.waveState.spawnedCount}/${waveRound?.composition.reduce((sum, item) => sum + item.count, 0) ?? 0}`;
+  const connection = pendingCount > 0 ? "SYNCING" : /reconnect/i.test(message) ? "RECONNECT" : "ONLINE";
+  const queueFull = ownRoom.attack.queue.length >= MAX_LAUNCH_QUEUE_SIZE;
+  const defenseTools: FloatTool[] = (["wall", "nails", "glue", "remove"] as BuildMode[]).map(item => {
+    const cost = item === "wall" ? VERTICAL_WALL_COST : item === "nails" ? NAIL_STRIP_COST : item === "glue" ? GLUE_COST : undefined;
+    return { key: item, label: item.toUpperCase(), kind: item, cost, selected: buildMode === item, disabled: state.status === "complete" || (cost !== undefined && ownRoom.economy.coins < cost) };
+  });
+  const attackTools: FloatTool[] = (["basic", "speed", "heavy"] as BalloonType[]).map(item => {
+    const config = BALLOON_TYPES[item];
+    const unlocked = ownRoom.unlockedBalloonTypes[item];
+    return { key: item, label: item.toUpperCase(), kind: item, cost: unlocked ? config.cost : undefined, disabled: state.status === "complete" || opponentRoom.health <= 0 || !unlocked || ownRoom.economy.coins < config.cost || queueFull };
+  });
+  const resultLabel: "YOU WIN" | "ROOM BROKEN" | "DRAW" | "RECONNECTING" | null = state.status === "complete"
+    ? state.result?.type === "draw"
+      ? "DRAW"
+      : state.result?.winnerPlayerId === playerId
+        ? "YOU WIN"
+        : "ROOM BROKEN"
+    : /reconnecting/i.test(message)
+      ? "RECONNECTING"
+      : null;
 
-  return <SafeAreaView style={styles.game}><View style={styles.header}><Text style={styles.gameTitle}>FLOAT · {match.match_code}</Text><Pressable onPress={() => router.back()}><Text style={styles.close}>×</Text></Pressable></View>
-    <View style={styles.rooms}><View style={styles.room}><Text style={styles.roomTitle}>YOUR ROOM · HP {ownRoom.health}</Text><BalloonRoomField room={ownRoom} height={300} debugPaths={false} damageFlash={false} structuralEffects={[]} onPressPosition={pop} onLongPressPosition={() => undefined} /></View>
-    <View style={styles.room}><Text style={styles.roomTitle}>OPPONENT · HP {opponentRoom.health}</Text><BalloonRoomField room={opponentRoom} height={300} debugPaths={false} damageFlash={false} structuralEffects={[]} onPressPosition={() => undefined} onLongPressPosition={() => undefined} /></View></View>
-    <View style={styles.sendRow}>{(["basic", "speed", "heavy"] as BalloonType[]).map((type) => <Pressable key={type} style={styles.sendButton} onPress={() => send(type)}><Text style={styles.buttonText}>{type.toUpperCase()}</Text></Pressable>)}</View><Text style={styles.message}>{pendingCount > 0 ? `Applied locally · SYNCING ${pendingCount}` : message}</Text>
-  </SafeAreaView>;
+  return <FloatBackdrop><View style={styles.game}>
+    <FloatHud round={`ROUND ${waveRound?.id ?? 1} / 20`} status={roundStatus} connection={connection} onClose={() => router.back()} />
+    <FloatModeSwitch mode={mode} onChange={setMode} />
+    <FloatArenaTransition mode={mode}>
+      <View style={styles.arenaCard}>
+        <FloatArenaHeader label={mode === "defend" ? "YOUR ROOM" : "OPPONENT"} coins={viewedRoom.economy.coins} income={viewedRoom.economy.income} health={viewedRoom.health} maxHealth={ROOM_MAX_HEALTH} />
+        <View style={[styles.fieldWrap, { height: fieldHeight }]}>
+          <BalloonRoomField room={viewedRoom} height={fieldHeight} debugPaths={false} showGrid={mode === "defend" && buildMode === "wall"} damageFlash={false} structuralEffects={[]} selectedWallId={mode === "defend" ? selectedWallId : null} onPressPosition={mode === "defend" ? pop : undefined} onLongPressPosition={mode === "defend" ? build : undefined} />
+          {mode === "attack" ? <FloatLaneOverlay lane={selectedAttackLane} onSelect={setSelectedAttackLane} /> : null}
+          {mode === "defend" && selectedWall ? <View style={styles.repairBar}><View><Text style={styles.repairTitle}>WALL {selectedWall.integrity}/{selectedWall.maxIntegrity}</Text><Text style={styles.repairMeta}>Restore +{WALL_REPAIR_AMOUNT}</Text></View><Pressable disabled={!selectedWallRepairable || ownRoom.economy.coins < WALL_REPAIR_COST} onPress={() => handleIntent({ actionType: "REPAIR_WALL", payload: { wallSegmentId: selectedWall.id } })} style={[styles.repairButton, (!selectedWallRepairable || ownRoom.economy.coins < WALL_REPAIR_COST) && styles.disabled]}><Text style={styles.repairButtonText}>REPAIR · ● {WALL_REPAIR_COST}</Text></Pressable></View> : null}
+          <FloatResultOverlay label={resultLabel} />
+        </View>
+      </View>
+    </FloatArenaTransition>
+    {mode === "defend"
+      ? <FloatToolbar mode="defend" tools={defenseTools} feedback={message === "Applied locally." ? "Hold 0.5s to build · Tap balloons to pop" : message} onPress={key => { setBuildMode(key as BuildMode); setMessage(`Ready to ${key}.`); }} />
+      : <FloatToolbar mode="attack" tools={attackTools} prompt={`TAP TO SEND TO LANE ${selectedAttackLane}`} feedback={queueFull ? "QUEUE FULL" : pendingCount > 0 ? `${pendingCount} syncing` : message} onPress={key => send(key as BalloonType)} />}
+  </View></FloatBackdrop>;
 }
 
-function Shell({ children, onClose }: { children: ReactNode; onClose: () => void }) { return <SafeAreaView style={styles.shell}><Pressable onPress={onClose} style={styles.topClose}><Text style={styles.close}>×</Text></Pressable><View style={styles.card}>{children}</View></SafeAreaView>; }
+function Shell({ children, onClose }: { children: ReactNode; onClose: () => void }) { return <FloatBackdrop><View style={styles.shell}><Pressable onPress={onClose} style={styles.topClose}><Text style={styles.close}>×</Text></Pressable><View style={styles.card}>{children}</View></View></FloatBackdrop>; }
 function Button({ label, sublabel, onPress, disabled, secondary }: { label: string; sublabel?: string; onPress: () => void; disabled?: boolean; secondary?: boolean }) { return <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={[styles.button, secondary && styles.secondary, disabled && styles.disabled]}><Text style={styles.buttonText}>{label}</Text>{sublabel ? <Text style={styles.buttonSub}>{sublabel}</Text> : null}</Pressable>; }
 
-const styles = StyleSheet.create({ shell: { flex: 1, backgroundColor: "#080510", justifyContent: "center", padding: 20 }, topClose: { position: "absolute", right: 20, top: 48, zIndex: 2 }, close: { color: "white", fontSize: 32, fontWeight: "900" }, card: { borderWidth: 1, borderColor: "#553276", backgroundColor: "#160d24", borderRadius: 20, padding: 22 }, eyebrow: { color: "#d8b4fe", fontSize: 12, fontWeight: "900", letterSpacing: 2, textAlign: "center" }, title: { color: "white", fontSize: 30, fontWeight: "900", textAlign: "center", marginBottom: 18 }, button: { minHeight: 58, borderRadius: 14, backgroundColor: "#9333ea", alignItems: "center", justifyContent: "center", marginTop: 12 }, secondary: { backgroundColor: "transparent", borderWidth: 1, borderColor: "#c084fc" }, disabled: { opacity: 0.35 }, buttonText: { color: "white", fontWeight: "900", fontSize: 14 }, buttonSub: { color: "#e9d5ff", fontSize: 9, fontWeight: "800", marginTop: 2 }, warning: { color: "#fcd34d", fontSize: 10, fontWeight: "900", textAlign: "center", marginTop: 8 }, message: { color: "#a1a1aa", fontSize: 11, fontWeight: "700", textAlign: "center", marginTop: 14 }, searching: { color: "white", fontWeight: "900", fontSize: 18, textAlign: "center", paddingVertical: 22 }, game: { flex: 1, backgroundColor: "#080510", padding: 8 }, header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }, gameTitle: { color: "white", fontSize: 18, fontWeight: "900" }, rooms: { flex: 1, flexDirection: "row", gap: 6 }, room: { flex: 1 }, roomTitle: { color: "#e9d5ff", fontSize: 9, fontWeight: "900", textAlign: "center", marginBottom: 4 }, sendRow: { flexDirection: "row", gap: 6 }, sendButton: { flex: 1, minHeight: 44, borderRadius: 8, backgroundColor: "#a21caf", alignItems: "center", justifyContent: "center" } });
+const styles = StyleSheet.create({
+  shell: { flex: 1, justifyContent: "center", padding: 10 },
+  topClose: { position: "absolute", right: 12, top: 8, zIndex: 2, width: 42, height: 42, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(230,248,255,.6)", borderRadius: 13, backgroundColor: "rgba(28,78,124,.72)" },
+  close: { color: "white", fontSize: 30, fontWeight: "700" },
+  card: { borderWidth: 1, borderColor: "rgba(230,248,255,.72)", backgroundColor: "rgba(30,84,131,.76)", borderRadius: 20, padding: 22 },
+  eyebrow: { color: "#D9F4FF", fontSize: 12, fontWeight: "900", letterSpacing: 2, textAlign: "center" },
+  title: { color: "white", fontSize: 30, fontWeight: "900", textAlign: "center", marginBottom: 18 },
+  button: { minHeight: 58, borderRadius: 14, borderWidth: 1, borderColor: "#E7F8FF", backgroundColor: "rgba(81,117,208,.82)", alignItems: "center", justifyContent: "center", marginTop: 12 },
+  secondary: { backgroundColor: "rgba(22,68,108,.48)", borderWidth: 1, borderColor: "rgba(224,247,255,.72)" },
+  disabled: { opacity: 0.35 }, buttonText: { color: "white", fontWeight: "900", fontSize: 14 }, buttonSub: { color: "#E0F6FF", fontSize: 9, fontWeight: "800", marginTop: 2 }, warning: { color: "#FFE77A", fontSize: 10, fontWeight: "900", textAlign: "center", marginTop: 8 }, message: { color: "rgba(255,255,255,.78)", fontSize: 11, fontWeight: "700", textAlign: "center", marginTop: 14 }, searching: { color: "white", fontWeight: "900", fontSize: 18, textAlign: "center", paddingVertical: 22 },
+  game: { flex: 1, minHeight: 0 }, arenaCard: { flex: 1, minHeight: 0 }, fieldWrap: { position: "relative" },
+  repairBar: { position: "absolute", zIndex: 12, left: 9, right: 9, bottom: 9, minHeight: 48, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderWidth: 1, borderColor: "rgba(255,239,182,.72)", borderRadius: 11, backgroundColor: "rgba(35,83,126,.92)" },
+  repairTitle: { color: "#FFFFFF", fontSize: 10, fontWeight: "900" }, repairMeta: { color: "rgba(255,255,255,.72)", fontSize: 7, fontWeight: "700", marginTop: 2 }, repairButton: { minHeight: 36, justifyContent: "center", paddingHorizontal: 10, borderWidth: 1, borderColor: "#FFE797", borderRadius: 8, backgroundColor: "rgba(254,216,95,.16)" }, repairButtonText: { color: "#FFF0AC", fontSize: 8, fontWeight: "900" },
+});
